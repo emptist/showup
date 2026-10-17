@@ -99,23 +99,6 @@ pub fn reports_a_failure_without_stopping_test() {
   ))
 }
 
-pub fn reports_an_app_it_could_not_raise_test() {
-  let result =
-    scheduler.step(
-      "Safari",
-      [at(12, 0)],
-      effects(nine_o_clock(), fn(_) {
-        macos.CouldNotRaise(reason: "not allowed")
-      }),
-      from: nine_o_clock(),
-    )
-  result
-  |> should.equal(scheduler.Surfaced(
-    wake: wake_at(12, 0, 3),
-    showed: macos.CouldNotRaise(reason: "not allowed"),
-  ))
-}
-
 pub fn does_nothing_without_times_test() {
   scheduler.step(
     "Safari",

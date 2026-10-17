@@ -118,11 +118,6 @@ pub fn reports_an_empty_app_name_test() {
   parse(["-a", "   ", "-t", "9:00"]) |> should.equal(Error(cli.EmptyApp))
 }
 
-pub fn reports_an_app_name_that_cannot_be_used_test() {
-  parse(["-a", "Ma\"il", "-t", "9:00"])
-  |> should.equal(Error(cli.InvalidAppName("Ma\"il")))
-}
-
 pub fn reports_an_unparsable_time_test() {
   parse(["-a", "Mail", "-t", "half past nine"])
   |> should.equal(Error(cli.InvalidTime(schedule.Malformed("half past nine"))))
@@ -149,7 +144,6 @@ pub fn describes_every_error_test() {
   let errors = [
     cli.MissingApp,
     cli.EmptyApp,
-    cli.InvalidAppName("Ma\"il"),
     cli.NoTimesGiven,
     cli.InvalidTime(schedule.Malformed("noon")),
     cli.MissingValue("-t"),

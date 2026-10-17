@@ -19,9 +19,6 @@ pub type Command {
 pub type Error {
   MissingApp
   EmptyApp
-  /// App names are embedded in an AppleScript string, so quotes and newlines
-  /// cannot be represented.
-  InvalidAppName(name: String)
   NoTimesGiven
   InvalidTime(schedule.Error)
   /// A flag that needs a value was the last argument.
@@ -115,15 +112,7 @@ fn app_name(value: String) -> Result(String, Error) {
   let app = string.trim(value)
   case string.is_empty(app) {
     True -> Error(EmptyApp)
-    False ->
-      case
-        string.contains(app, "\"")
-        || string.contains(app, "\\")
-        || string.contains(app, "\n")
-      {
-        True -> Error(InvalidAppName(name: value))
-        False -> Ok(app)
-      }
+    False -> Ok(app)
   }
 }
 
@@ -158,10 +147,6 @@ pub fn error_message(error: Error) -> String {
   case error {
     MissingApp -> "no app given, pass one with -a/--app"
     EmptyApp -> "the app name given with -a/--app is empty"
-    InvalidAppName(name: name) ->
-      "the app name "
-      <> quoted(name)
-      <> " cannot be used, it contains a quote, a backslash or a line break"
     NoTimesGiven -> "no times given, pass some with -t/--times"
     InvalidTime(error) -> "invalid time: " <> schedule.error_message(error)
     MissingValue(flag: flag) -> quoted(flag) <> " needs a value"

@@ -48,19 +48,16 @@ showup -a Mail -t 9:00 --dry-run      # show the plan without waiting
 
 ## How it works
 
-Surfacing an application is done with two tools that ship with macOS:
+Surfacing an application is one command that ships with macOS: `open -a <app>`.
+It launches the app if it is not running, and if it is, macOS activates it
+through LaunchServices, which brings its windows to the front and gives it
+focus. No permission needs to be granted for this, in Terminal or anywhere
+else.
 
-- `open -a <app>` launches the application if it is not running and activates
-  it if it is.
-- An AppleScript that asks System Events to set the application's process to
-  the frontmost one, which raises its window above the others.
-
-The first step always works. The second needs the program running `showup` to
-be allowed to control your computer, so if it does not work, grant
-Accessibility permission to it in
-*System Settings > Privacy & Security > Accessibility*. When the permission is
-missing, `showup` still activates the application and warns you once per wake
-time rather than failing silently.
+`showup` also asks `lsappinfo` whether the app was already running, purely so it
+can report `surfaced` or `launched` accurately. If the app name is not an
+exact match for the app's own name, such as `Finder` or `System Settings`, the
+answer will be wrong, but only the wording of the log line is affected.
 
 ## Development
 
@@ -78,7 +75,7 @@ than home grown types.
 | `showup/cli.gleam`       | Reading and validating the command line               |
 | `showup/schedule.gleam`  | Times of day, and when the next wake is due           |
 | `showup/scheduler.gleam` | The loop, taking its clock and platform calls as arguments |
-| `showup/macos.gleam`     | Talking to `open` and AppleScript                     |
+| `showup/macos.gleam`     | Talking to `open` and `lsappinfo`                     |
 | `src/showup_erl.erl`     | The few operations that need Erlang                  |
 
 `scheduler.live` is the only place the real system clock and macOS are wired
