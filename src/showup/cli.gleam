@@ -147,7 +147,7 @@ pub fn usage() -> String {
     "showup - bring a macOS app to the foreground at times you choose",
     "",
     "Usage:",
-    "  showup -a <app> -t <times> [-n]",
+    "  showup -a <app> -t <times> [-n] [-q]",
     "",
     "Arguments:",
     "  -a, --app <name>      The application to surface, for example \"Safari\".",

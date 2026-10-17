@@ -24,7 +24,11 @@ gleam export escript   # writes a self contained escript named `showup`
 ```
 
 The resulting `showup` file is self contained, so copying it to somewhere on
-your `PATH` is enough to install it.
+your `PATH` is enough to install it:
+
+```sh
+install -m 0755 showup /usr/local/bin/showup
+```
 
 ## Usage
 
@@ -111,17 +115,15 @@ one hand written Erlang module is down to the three things no core library
 does: run a program and capture its output, read the command line arguments,
 and exit with a status code.
 
-| Module                   | Role                                                  |
-| ------------------------ | ----------------------------------------------------- |
-| `showup/cli.gleam`       | Reading and validating the command line               |
-| `showup/schedule.gleam`  | Times of day, and when the next wake is due           |
+| Module                   | Role                                                       |
+| ------------------------ | ---------------------------------------------------------- |
+| `showup/cli.gleam`       | Reading and validating the command line                    |
+| `showup/schedule.gleam`  | Times of day, and when the next wake is due                |
 | `showup/scheduler.gleam` | The loop, taking its clock and platform calls as arguments |
-| `showup/alarm.gleam`     | Ringing until the user is awake                       |
-| `showup/macos.gleam`     | Talking to `open`, `lsappinfo`, `ioreg` and `afplay`   |
-| `src/showup_erl.erl`     | The three operations no core library offers         |
+| `showup/alarm.gleam`     | Ringing until the user is awake                            |
+| `showup/macos.gleam`     | Asking `open`, `lsappinfo`, `ioreg` and `afplay` questions |
+| `src/showup_erl.erl`     | The three operations no core library offers                |
 
-`scheduler.live_with_alarm` is the only place the real system clock and macOS
-are wired in, so the rest of the program is pure and the loop is exercised in
-the tests with a fake clock and a fake machine.
-
-Further documentation can be found at <https://showup.hexdocs.pm/>.
+`scheduler.live` is the only place the real system clock and macOS are wired in,
+so the rest of the program is pure and the loop is exercised in the tests with a
+fake clock and a fake machine.
