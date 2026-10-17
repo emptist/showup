@@ -23,8 +23,8 @@ The project is written in [Gleam](https://gleam.run) and targets Erlang.
 gleam export escript   # writes a self contained escript named `showup`
 ```
 
-The resulting `showup` file is self contained, so copying it to somewhere on
-your `PATH` is enough to install it:
+That writes a `showup` file in the project directory, which is not tracked by
+git. It is self contained, so putting it somewhere on your `PATH` installs it:
 
 ```sh
 install -m 0755 showup /usr/local/bin/showup
@@ -107,6 +107,14 @@ line is affected, never what `showup` does.
 gleam run -- -a Safari -t 9:00 --dry-run              # run
 gleam test                                           # test
 gleam format src test                                # format
+```
+
+Changes to the source only reach an installed `showup` by exporting and
+installing again, because `gleam test` and `gleam run` use the build in
+`build/` and leave `/usr/local/bin/showup` alone:
+
+```sh
+gleam export escript && install -m 0755 showup /usr/local/bin/showup
 ```
 
 Times of day and delays are `gleam_time`'s `TimeOfDay` and `Duration` rather
