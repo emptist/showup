@@ -34,16 +34,26 @@ pub fn main() -> Nil {
 
 fn print_schedule(config: cli.Config) -> Nil {
   io.println("showup will surface " <> config.app <> " at:")
-  config.times
-  |> schedule.upcoming(from: now(), count: preview_count)
-  |> list.each(fn(wake) {
-    io.println(
-      "  "
-      <> schedule.to_string(wake.at)
-      <> "  in "
-      <> scheduler.describe_delay(wake.delay),
-    )
-  })
+  // Only the first delay is measured from now, the rest are measured from the
+  // wake before them, so saying so avoids reading "20:00 4h later" as four
+  // hours from the moment the command was run.
+  case schedule.upcoming(config.times, from: now(), count: preview_count) {
+    [] -> Nil
+    [first, ..rest] -> {
+      io.println("  " <> at(first) <> "  in " <> delay(first))
+      list.each(rest, fn(wake) {
+        io.println("  " <> at(wake) <> "  " <> delay(wake) <> " later")
+      })
+    }
+  }
+}
+
+fn at(wake: schedule.Wake) -> String {
+  schedule.to_string(wake.at)
+}
+
+fn delay(wake: schedule.Wake) -> String {
+  scheduler.describe_delay(wake.delay)
 }
 
 fn now() -> Duration {
