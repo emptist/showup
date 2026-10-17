@@ -5,7 +5,7 @@ import gleam/time/calendar.{type TimeOfDay}
 import gleam/time/duration.{type Duration}
 import gleeunit
 import gleeunit/should
-import intime/schedule
+import showup/schedule
 
 pub fn main() -> Nil {
   gleeunit.main()

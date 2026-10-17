@@ -3,9 +3,9 @@ import gleam/time/calendar.{type TimeOfDay}
 import gleam/time/duration.{type Duration}
 import gleeunit
 import gleeunit/should
-import intime/macos
-import intime/schedule
-import intime/scheduler
+import showup/macos
+import showup/schedule
+import showup/scheduler
 
 pub fn main() -> Nil {
   gleeunit.main()

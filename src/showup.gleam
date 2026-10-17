@@ -1,9 +1,9 @@
 import gleam/io
 import gleam/list
 import gleam/time/duration.{type Duration}
-import intime/cli
-import intime/schedule
-import intime/scheduler
+import showup/cli
+import showup/schedule
+import showup/scheduler
 
 /// How many wake times `--dry-run` prints.
 const preview_count: Int = 5
@@ -11,10 +11,10 @@ const preview_count: Int = 5
 /// Exit status used when the command line could not be understood.
 const usage_status: Int = 2
 
-@external(erlang, "intime_erl", "arguments")
+@external(erlang, "showup_erl", "arguments")
 fn arguments() -> List(String)
 
-@external(erlang, "intime_erl", "halt")
+@external(erlang, "showup_erl", "halt")
 fn halt(status: Int) -> Nil
 
 pub fn main() -> Nil {

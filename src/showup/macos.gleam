@@ -16,7 +16,7 @@ pub type Outcome {
   Failed(reason: String)
 }
 
-@external(erlang, "intime_erl", "run")
+@external(erlang, "showup_erl", "run")
 fn exec(executable: String, arguments: List(String)) -> Result(String, String)
 
 /// Brings `app` to the foreground, launching it when it is not running.

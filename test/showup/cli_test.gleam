@@ -4,8 +4,8 @@ import gleam/string
 import gleam/time/calendar.{type TimeOfDay}
 import gleeunit
 import gleeunit/should
-import intime/cli
-import intime/schedule
+import showup/cli
+import showup/schedule
 
 pub fn main() -> Nil {
   gleeunit.main()

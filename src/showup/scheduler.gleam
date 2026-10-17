@@ -5,8 +5,8 @@ import gleam/string
 import gleam/time/calendar.{type TimeOfDay}
 import gleam/time/duration.{type Duration}
 import gleam/time/timestamp
-import intime/macos
-import intime/schedule
+import showup/macos
+import showup/schedule
 
 /// Everything the scheduler needs from the outside world, gathered in one
 /// place so the loop can be driven by a fake clock in the tests.
@@ -95,7 +95,7 @@ fn local_time_of_day() -> Duration {
   duration.seconds(local_seconds % 86_400)
 }
 
-@external(erlang, "intime_erl", "sleep_ms")
+@external(erlang, "showup_erl", "sleep_ms")
 fn sleep_ms(milliseconds: Int) -> Nil
 
 fn sleep(delay: Duration) -> Nil {

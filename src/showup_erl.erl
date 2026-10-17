@@ -1,4 +1,4 @@
--module(intime_erl).
+-module(showup_erl).
 
 -export([arguments/0, halt/1, run/2, sleep_ms/1]).
 

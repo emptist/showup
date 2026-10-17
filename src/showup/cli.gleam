@@ -1,7 +1,7 @@
 import gleam/list
 import gleam/string
 import gleam/time/calendar.{type TimeOfDay}
-import intime/schedule
+import showup/schedule
 
 /// A validated request, ready to be scheduled or described.
 pub type Config {

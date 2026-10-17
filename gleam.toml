@@ -1,4 +1,4 @@
-name = "intime"
+name = "showup"
 version = "1.0.0"
 target = "erlang"
 description = "Bring a macOS app to the foreground at the times you choose."
@@ -13,4 +13,4 @@ gleeunit = ">= 1.0.0 and < 2.0.0"
 
 [[bin]]
 name = "showup"
-entry-module = "intime"
+entry-module = "showup"
