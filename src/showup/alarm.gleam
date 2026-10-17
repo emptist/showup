@@ -42,6 +42,16 @@ pub type Effects {
   )
 }
 
+/// The alarm as it behaves by default: quiet only when someone is there.
+pub fn ringing() -> fn() -> Outcome {
+  fn() { ring(default_options(), live()) }
+}
+
+/// The alarm for someone who has asked for silence.
+pub fn silent() -> fn() -> Outcome {
+  fn() { Awake }
+}
+
 /// The alarm as this machine experiences it.
 pub fn live() -> Effects {
   Effects(idle_seconds: macos.idle_seconds, play: macos.play, sleep: sleep)

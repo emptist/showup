@@ -33,30 +33,15 @@ pub type Step {
 }
 
 /// The effects that talk to the real system clock and to macOS.
-pub fn live() -> Effects {
-  live_with_alarm(ringing())
-}
-
-/// The effects this machine uses, ringing unless the caller asked for silence.
-pub fn live_with_alarm(alarm: fn() -> alarm.Outcome) -> Effects {
+pub fn live(alarm: fn() -> alarm.Outcome) -> Effects {
   Effects(
-    now: local_time_of_day,
+    now: now,
     sleep: sleep,
     show: macos.show,
     alarm: alarm,
     log: fn(message) { io.println("showup: " <> message) },
     warn: fn(message) { io.println_error("showup: " <> message) },
   )
-}
-
-/// The alarm as it behaves by default: quiet only when someone is there.
-pub fn ringing() -> fn() -> alarm.Outcome {
-  fn() { alarm.ring(alarm.default_options(), alarm.live()) }
-}
-
-/// The alarm for someone who has asked for silence.
-pub fn silent() -> fn() -> alarm.Outcome {
-  fn() { alarm.Awake }
 }
 
 /// Surfaces `app` at every time, for as long as the program runs.
@@ -172,7 +157,7 @@ fn report(app: String, showed: macos.Outcome, effects: Effects) -> Nil {
 ///
 /// The local offset is the one in force right now, which is what makes this
 /// correct across daylight saving changes for a schedule that repeats daily.
-fn local_time_of_day() -> Duration {
+pub fn now() -> Duration {
   let #(unix_seconds, _nanoseconds) =
     timestamp.to_unix_seconds_and_nanoseconds(timestamp.system_time())
   let #(offset_seconds, _offset_nanoseconds) =

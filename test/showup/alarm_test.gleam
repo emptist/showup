@@ -75,3 +75,9 @@ pub fn rings_the_sound_an_incoming_facetime_call_makes_test() {
     "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/facetime/multiway_invitation.caf",
   )
 }
+
+pub fn stays_quiet_when_ringing_was_switched_off_test() {
+  // The silent alarm is what --no-ring installs, and it must never make a
+  // sound whatever the machine looks like.
+  alarm.silent()() |> should.equal(alarm.Awake)
+}

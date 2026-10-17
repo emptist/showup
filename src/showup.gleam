@@ -1,6 +1,5 @@
 import gleam/io
 import gleam/list
-import gleam/time/duration.{type Duration}
 import showup/alarm
 import showup/cli
 import showup/schedule
@@ -33,15 +32,15 @@ pub fn main() -> Nil {
 }
 
 fn start(config: cli.Config) -> Nil {
-  let effects = scheduler.live_with_alarm(alarm_for(config.ring))
+  let effects = scheduler.live(alarm_for(config.ring))
   scheduler.run(config.app, config.times, effects)
 }
 
 /// The alarm as asked for: quiet when ringing was switched off.
 fn alarm_for(ring: Bool) -> fn() -> alarm.Outcome {
   case ring {
-    True -> scheduler.ringing()
-    False -> scheduler.silent()
+    True -> alarm.ringing()
+    False -> alarm.silent()
   }
 }
 
@@ -50,7 +49,9 @@ fn print_schedule(config: cli.Config) -> Nil {
   // Only the first delay is measured from now, the rest are measured from the
   // wake before them, so saying so avoids reading "20:00 4h later" as four
   // hours from the moment the command was run.
-  case schedule.upcoming(config.times, from: now(), count: preview_count) {
+  case
+    schedule.upcoming(config.times, from: scheduler.now(), count: preview_count)
+  {
     [] -> Nil
     [first, ..rest] -> {
       io.println("  " <> at(first) <> "  in " <> delay(first))
@@ -67,9 +68,4 @@ fn at(wake: schedule.Wake) -> String {
 
 fn delay(wake: schedule.Wake) -> String {
   scheduler.describe_delay(wake.delay)
-}
-
-fn now() -> Duration {
-  let effects = scheduler.live()
-  effects.now()
 }
