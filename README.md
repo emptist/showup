@@ -34,6 +34,7 @@ showup -a <app> -t <times> [-n]
                         8:00,12:00,16:00,20:00,24:00. A bare hour such as
                         8 means 8:00.
   -n, --dry-run         Print the next few wake times and exit.
+  -q, --no-ring         Never make a sound, even when nobody is there.
   -h, --help            Show the full message.
 ```
 
@@ -44,7 +45,24 @@ combined, and times are sorted and deduplicated.
 showup --app="Slack" --times="9,17"   # 09:00 and 17:00 every day
 showup -a Mail -t 24:00               # midnight
 showup -a Mail -t 9:00 --dry-run      # show the plan without waiting
+showup -a Mail -t 9:00 --no-ring      # never make a sound
 ```
+
+## Waking you up
+
+Bringing a window to the front does nothing to someone who is asleep at the
+keyboard, so by default each wake also rings: it plays the ringback tone macOS
+uses when a phone rings, then repeats it every ten seconds until the keyboard or
+mouse is touched, giving up after six rings.
+
+It only makes that noise if nobody has touched anything for two minutes, since
+someone already sitting there does not need waking. Whether they are there is
+read from `ioreg`, which reports how long the keyboard and mouse have been idle;
+a locked screen counts as idle, because it produces no input either. `--no-ring`
+turns the sound off.
+
+`afplay` cannot play mp3, so a sound of your own would need to be a wav, aiff,
+caf or m4a rather than an mp3.
 
 ## How it works
 
