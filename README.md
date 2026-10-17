@@ -9,10 +9,11 @@ launched for you.
 showup -a Safari -t 8:00,12:00,16:00,20:00
 ```
 
-Every minute, `showup` decides whether the next scheduled time is due. When it
-is, the application is activated and, if nobody is actually at the machine, a
-phone rings until they are. Times that have already passed today wait for
-tomorrow, so the command is safe to leave running.
+`showup` works out when the next of your times is, sleeps until then, brings
+the application to the front, and rings if nobody is actually at the machine. It
+then does the same again for the next day, and the next, until you stop it with
+Ctrl-C. A time that has already passed today waits for tomorrow, so it is safe
+to leave running.
 
 ## Building
 
@@ -122,10 +123,12 @@ through LaunchServices, which brings its windows to the front and gives it
 focus. No permission needs to be granted for this, in Terminal or anywhere
 else.
 
-`showup` also asks `lsappinfo` whether the app was already running, purely so it
-can report `surfaced` or `launched` accurately. If the app name is not an
-exact match for the app's own name, such as `Finder` or `System Settings`, the
-answer will be wrong, but only the wording of the log line is affected.
+`showup` also asks `lsappinfo` whether the app was already running, purely so
+it can report `surfaced` or `launched` accurately rather than always claiming
+to have launched it. That lookup matches the name exactly, so an app macOS
+calls something else, such as System Settings on a version before macOS 13,
+would be reported as launched rather than surfaced. Only the wording of that log
+line is affected, never what `showup` does.
 
 ## Development
 
