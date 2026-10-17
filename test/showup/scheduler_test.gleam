@@ -161,9 +161,10 @@ pub fn keeps_the_planned_instant_after_a_slow_wake_test() {
 }
 
 pub fn gives_up_on_the_plan_after_missing_a_wake_test() {
-  let planned = noon()
-  let now = duration.add(noon(), duration.minutes(90))
-  scheduler.next_instant(planned, duration.hours(24), now)
+  // The machine slept past tomorrow's noon wake, so the plan is stale.
+  let target = duration.add(noon(), duration.hours(24))
+  let now = duration.add(target, duration.minutes(90))
+  scheduler.next_instant(noon(), duration.hours(24), now)
   |> seconds_of
-  |> should.equal(12 * 3600 + 90 * 60)
+  |> should.equal(seconds_of(now))
 }
