@@ -1,3 +1,4 @@
+import gleam/erlang/process
 import gleam/time/duration.{type Duration}
 import showup/macos
 
@@ -82,11 +83,8 @@ fn keep_ringing(options: Options, effects: Effects, rings: Int) -> Outcome {
   }
 }
 
-@external(erlang, "showup_erl", "sleep_ms")
-fn sleep_ms(milliseconds: Int) -> Nil
-
 fn sleep(delay: Duration) -> Nil {
-  sleep_ms(duration.to_milliseconds(delay))
+  process.sleep(duration.to_milliseconds(delay))
 }
 
 fn whole_seconds(period: Duration) -> Int {

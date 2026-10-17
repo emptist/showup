@@ -121,7 +121,10 @@ gleam format src test                                # format
 ```
 
 Times of day and delays are `gleam_time`'s `TimeOfDay` and `Duration` rather
-than home grown types.
+than home grown types, and sleeping is `gleam_erlang`'s `process.sleep`. The
+one hand written Erlang module is down to the three things no core library
+does: run a program and capture its output, read the command line arguments,
+and exit with a status code.
 
 | Module                   | Role                                                  |
 | ------------------------ | ----------------------------------------------------- |
@@ -131,7 +134,7 @@ than home grown types.
 | `showup/alarm.gleam`     | Ringing until the user is awake                       |
 | `showup/power.gleam`     | Arming a macOS wake for the next time                 |
 | `showup/macos.gleam`     | Talking to `open`, `lsappinfo`, `ioreg` and `afplay`   |
-| `src/showup_erl.erl`     | The few operations that need Erlang                  |
+| `src/showup_erl.erl`     | The three operations no core library offers         |
 
 `scheduler.live_with_alarm` is the only place the real system clock and macOS
 are wired in, so the rest of the program is pure and the loop is exercised in

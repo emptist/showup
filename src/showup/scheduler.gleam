@@ -1,3 +1,4 @@
+import gleam/erlang/process
 import gleam/int
 import gleam/io
 import gleam/list
@@ -197,11 +198,8 @@ fn local_time_of_day() -> Duration {
   duration.seconds(local_seconds % 86_400)
 }
 
-@external(erlang, "showup_erl", "sleep_ms")
-fn sleep_ms(milliseconds: Int) -> Nil
-
 fn sleep(delay: Duration) -> Nil {
-  sleep_ms(duration.to_milliseconds(delay))
+  process.sleep(duration.to_milliseconds(delay))
 }
 
 /// Renders a delay as `1h 5m 3s`, leaving out any units that are zero.

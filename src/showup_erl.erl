@@ -1,7 +1,11 @@
 -module(showup_erl).
 
--export([arguments/0, halt/1, run/2, sleep_ms/1]).
+-export([arguments/0, halt/1, run/2]).
 
+%% Everything in here is something no core library offers. Sleeping is
+%% gleam/erlang/process, and gleam/erlang/port has a port type but no way to
+%% open one, so running a program still means writing it here.
+%%
 %% The command line arguments, without the program name.
 %%
 %% `init:get_plain_arguments/0` is used rather than `init:get_arguments/0`
@@ -27,10 +31,6 @@ to_binaries(Arguments) -> [unicode:characters_to_binary(A) || A <- Arguments].
 -spec halt(non_neg_integer()) -> no_return().
 halt(Status) ->
     erlang:halt(Status).
-
--spec sleep_ms(non_neg_integer()) -> ok.
-sleep_ms(Milliseconds) ->
-    timer:sleep(Milliseconds).
 
 %% Runs an executable directly, without a shell, and captures its output.
 %%
