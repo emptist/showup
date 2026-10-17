@@ -1,4 +1,4 @@
-# intime
+# showup
 
 `showup` is a macOS command line tool that brings an application to the
 foreground at the times you choose, so you can switch to it without hunting
@@ -18,8 +18,7 @@ today wait for tomorrow, so the command is safe to leave running.
 The project is written in [Gleam](https://gleam.run) and targets Erlang.
 
 ```sh
-gleam export escript   # writes an escript named `intime`
-mv intime showup       # the command is called showup
+gleam export escript   # writes a self contained escript named `showup`
 ```
 
 The resulting `showup` file is self contained, so copying it to somewhere on
@@ -66,24 +65,24 @@ time rather than failing silently.
 ## Development
 
 ```sh
-gleam run -m intime -- -a Safari -t 9:00 --dry-run   # run
+gleam run -- -a Safari -t 9:00 --dry-run              # run
 gleam test                                           # test
 gleam format src test                                # format
 ```
 
-The code is split so that everything worth testing is pure:
+Times of day and delays are `gleam_time`'s `TimeOfDay` and `Duration` rather
+than home grown types.
 
-| Module                 | Role                                                     |
-| ---------------------- | -------------------------------------------------------- |
-| `intime/time.gleam`    | Parsing and rendering times of day                        |
-| `intime/cli.gleam`     | Reading and validating the command line                   |
-| `intime/schedule.gleam | Deciding when to wake up next                             |
-| `intime/scheduler.gleam` | The loop, with its clock and platform calls injected    |
-| `intime/macos.gleam`   | Talking to `open` and AppleScript                         |
-| `intime/wallclock.gleam` | Reading the system clock and sleeping                   |
-| `src/intime_erl.erl`   | The few operations that need Erlang                      |
+| Module                   | Role                                                  |
+| ------------------------ | ----------------------------------------------------- |
+| `showup/cli.gleam`       | Reading and validating the command line               |
+| `showup/schedule.gleam`  | Times of day, and when the next wake is due           |
+| `showup/scheduler.gleam` | The loop, taking its clock and platform calls as arguments |
+| `showup/macos.gleam`     | Talking to `open` and AppleScript                     |
+| `src/showup_erl.erl`     | The few operations that need Erlang                  |
 
-Only `macos` and `wallclock` touch the outside world, and `scheduler` takes
-them as arguments, so the loop is exercised in the tests with a fake clock.
+`scheduler.live` is the only place the real system clock and macOS are wired
+in, so the rest of the program is pure and the loop is exercised in the tests
+with a fake clock.
 
-Further documentation can be found at <https://intime.hexdocs.pm/>.
+Further documentation can be found at <https://showup.hexdocs.pm/>.
