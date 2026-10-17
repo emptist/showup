@@ -171,6 +171,25 @@ pub fn reports_an_empty_app_name_test() {
   parse(["-a", "   ", "-t", "9:00"]) |> should.equal(Error(cli.EmptyApp))
 }
 
+pub fn explains_a_list_the_shell_split_on_spaces_test() {
+  parse(["-a", "Safari", "-t", "8:00,", "12:00,"])
+  |> should.equal(Error(cli.TimesSplitBySpaces("8:00,")))
+}
+
+pub fn accepts_a_quoted_list_with_spaces_after_the_commas_test() {
+  parse(["-a", "Safari", "-t", "8:00, 12:00, 16:00"])
+  |> should.equal(
+    Ok(
+      show(cli.Config(
+        app: "Safari",
+        times: [at(8, 0), at(12, 0), at(16, 0)],
+        ring: True,
+        dry_run: False,
+      )),
+    ),
+  )
+}
+
 pub fn reports_an_unparsable_time_test() {
   parse(["-a", "Mail", "-t", "half past nine"])
   |> should.equal(Error(cli.InvalidTime(schedule.Malformed("half past nine"))))
@@ -198,6 +217,7 @@ pub fn describes_every_error_test() {
     cli.MissingApp,
     cli.EmptyApp,
     cli.NoTimesGiven,
+    cli.TimesSplitBySpaces("8:00,"),
     cli.InvalidTime(schedule.Malformed("noon")),
     cli.MissingValue("-t"),
     cli.UnknownArgument("--lunch"),

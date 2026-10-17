@@ -27,6 +27,9 @@ pub type Error {
   EmptyApp
   NoTimesGiven
   InvalidTime(schedule.Error)
+  /// The list of times was written with spaces after the commas, so the shell
+  /// handed over only the first of several arguments.
+  TimesSplitBySpaces(value: String)
   /// A flag that needs a value was the last argument.
   MissingValue(flag: String)
   UnknownArgument(argument: String)
@@ -91,12 +94,23 @@ fn assign(
         Error(error) -> Error(error)
       }
     "-t" | "--times" ->
-      case schedule.parse_list(value) {
-        Ok(times) ->
-          go(rest, Options(..options, times: list.append(options.times, times)))
-        Error(error) -> Error(InvalidTime(error))
+      case string.ends_with(value, ",") {
+        True -> Error(TimesSplitBySpaces(value: value))
+        False -> parse_times(value, rest, options)
       }
     _ -> Error(UnknownArgument(argument: flag))
+  }
+}
+
+fn parse_times(
+  value: String,
+  rest: List(String),
+  options: Options,
+) -> Result(Command, Error) {
+  case schedule.parse_list(value) {
+    Ok(times) ->
+      go(rest, Options(..options, times: list.append(options.times, times)))
+    Error(error) -> Error(InvalidTime(error))
   }
 }
 
@@ -153,6 +167,7 @@ pub fn usage() -> String {
     "",
     "Examples:",
     "  showup -a Safari -t 8:00,12:00,16:00,20:00",
+    "  showup -a Safari -t \"8:00, 12:00\"    # spaces need quoting",
     "  showup --app=\"Slack\" --times=\"9,17\"",
     "  showup -a Mail -t 24:00 --dry-run",
     "",
@@ -166,6 +181,12 @@ pub fn error_message(error: Error) -> String {
     EmptyApp -> "the app name given with -a/--app is empty"
     NoTimesGiven -> "no times given, pass some with -t/--times"
     InvalidTime(error) -> "invalid time: " <> schedule.error_message(error)
+    TimesSplitBySpaces(value: value) ->
+      "the times "
+      <> quoted(value)
+      <> " end in a comma, so the shell split the list on the spaces after each "
+      <> "one. Write them as a single argument, such as "
+      <> quoted("8:00,12:00,16:00")
     MissingValue(flag: flag) -> quoted(flag) <> " needs a value"
     UnknownArgument(argument: argument) ->
       "unexpected argument " <> quoted(argument)

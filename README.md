@@ -10,8 +10,9 @@ showup -a Safari -t 8:00,12:00,16:00,20:00
 ```
 
 Every minute, `showup` decides whether the next scheduled time is due. When it
-is, the application is activated and raised. Times that have already passed
-today wait for tomorrow, so the command is safe to leave running.
+is, the application is activated and, if nobody is actually at the machine, a
+phone rings until they are. Times that have already passed today wait for
+tomorrow, so the command is safe to leave running.
 
 ## Building
 
@@ -27,7 +28,7 @@ your `PATH` is enough to install it.
 ## Usage
 
 ```text
-showup -a <app> -t <times> [-n]
+showup -a <app> -t <times> [-n] [-q]
 
   -a, --app <name>      The application to surface, for example "Safari".
   -t, --times <times>   Comma separated times of day, such as
@@ -40,6 +41,15 @@ showup -a <app> -t <times> [-n]
 
 Both `--flag value` and `--flag=value` are accepted, repeated `-t` flags are
 combined, and times are sorted and deduplicated.
+
+The list of times has to be one argument, because the shell splits a list with
+spaces after the commas into several of them:
+
+```sh
+showup -a Safari -t 8:00,12:00,16:00      # right
+showup -a Safari -t 8:00, 12:00, 16:00    # wrong, the shell splits this
+showup -a Safari -t "8:00, 12:00, 16:00"  # right, quoted as one argument
+```
 
 ```sh
 showup --app="Slack" --times="9,17"   # 09:00 and 17:00 every day
@@ -93,11 +103,12 @@ than home grown types.
 | `showup/cli.gleam`       | Reading and validating the command line               |
 | `showup/schedule.gleam`  | Times of day, and when the next wake is due           |
 | `showup/scheduler.gleam` | The loop, taking its clock and platform calls as arguments |
-| `showup/macos.gleam`     | Talking to `open` and `lsappinfo`                     |
+| `showup/alarm.gleam`     | Ringing until the user is awake                       |
+| `showup/macos.gleam`     | Talking to `open`, `lsappinfo`, `ioreg` and `afplay`   |
 | `src/showup_erl.erl`     | The few operations that need Erlang                  |
 
-`scheduler.live` is the only place the real system clock and macOS are wired
-in, so the rest of the program is pure and the loop is exercised in the tests
-with a fake clock.
+`scheduler.live_with_alarm` is the only place the real system clock and macOS
+are wired in, so the rest of the program is pure and the loop is exercised in
+the tests with a fake clock and a fake machine.
 
 Further documentation can be found at <https://showup.hexdocs.pm/>.
