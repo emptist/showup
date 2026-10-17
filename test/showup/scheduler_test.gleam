@@ -21,6 +21,15 @@ fn nine_o_clock() -> Duration {
   duration.hours(9)
 }
 
+fn noon() -> Duration {
+  duration.hours(12)
+}
+
+fn seconds_of(period: Duration) -> Int {
+  let #(seconds, _nanoseconds) = duration.to_seconds_and_nanoseconds(period)
+  seconds
+}
+
 fn effects(
   now: Duration,
   showing: fn(String) -> macos.Outcome,
@@ -44,6 +53,7 @@ pub fn waits_then_surfaces_the_app_test() {
       "Safari",
       [at(12, 0)],
       effects(nine_o_clock(), fn(_) { macos.Launched }),
+      from: nine_o_clock(),
     )
   result
   |> should.equal(scheduler.Surfaced(
@@ -63,6 +73,7 @@ pub fn passes_the_app_name_to_the_platform_test() {
           other -> macos.Failed(reason: "asked for " <> other)
         }
       }),
+      from: nine_o_clock(),
     )
   result
   |> should.equal(scheduler.Surfaced(
@@ -79,6 +90,7 @@ pub fn reports_a_failure_without_stopping_test() {
       effects(nine_o_clock(), fn(_) {
         macos.Failed(reason: "Unable to find application")
       }),
+      from: nine_o_clock(),
     )
   result
   |> should.equal(scheduler.Surfaced(
@@ -95,6 +107,7 @@ pub fn reports_an_app_it_could_not_raise_test() {
       effects(nine_o_clock(), fn(_) {
         macos.CouldNotRaise(reason: "not allowed")
       }),
+      from: nine_o_clock(),
     )
   result
   |> should.equal(scheduler.Surfaced(
@@ -108,6 +121,7 @@ pub fn does_nothing_without_times_test() {
     "Safari",
     [],
     effects(nine_o_clock(), fn(_) { macos.Launched }),
+    from: nine_o_clock(),
   )
   |> should.equal(scheduler.Idle)
 }
@@ -136,4 +150,20 @@ pub fn describes_seconds_test() {
 
 pub fn describes_no_delay_test() {
   scheduler.describe_delay(duration.seconds(0)) |> should.equal("0s")
+}
+
+pub fn keeps_the_planned_instant_after_a_slow_wake_test() {
+  let planned = noon()
+  let now = duration.add(noon(), duration.seconds(2))
+  scheduler.next_instant(planned, duration.hours(24), now)
+  |> seconds_of
+  |> should.equal(86_400 + 12 * 3600)
+}
+
+pub fn gives_up_on_the_plan_after_missing_a_wake_test() {
+  let planned = noon()
+  let now = duration.add(noon(), duration.minutes(90))
+  scheduler.next_instant(planned, duration.hours(24), now)
+  |> seconds_of
+  |> should.equal(12 * 3600 + 90 * 60)
 }

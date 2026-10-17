@@ -41,15 +41,60 @@ pub fn live() -> Effects {
 
 /// Surfaces `app` at every time, for as long as the program runs.
 pub fn run(app: String, times: List(TimeOfDay), effects: Effects) -> Nil {
-  case step(app, times, effects) {
-    Surfaced(..) -> run(app, times, effects)
+  loop(app, times, effects, from: effects.now())
+}
+
+fn loop(
+  app: String,
+  times: List(TimeOfDay),
+  effects: Effects,
+  from instant: Duration,
+) -> Nil {
+  case step(app, times, effects, from: instant) {
+    Surfaced(wake: wake, ..) ->
+      loop(
+        app,
+        times,
+        effects,
+        from: next_instant(instant, wake.delay, effects.now()),
+      )
     Idle -> effects.log("no times to wait for, stopping")
   }
 }
 
+/// The instant the next wake is measured from.
+///
+/// Measuring from the wake that was just planned, rather than from the clock
+/// read after it, keeps the interval at a whole day even though surfacing an
+/// app always costs a second or two. If the machine slept through the wake the
+/// plan is a fiction, so the clock takes over again.
+pub fn next_instant(
+  planned: Duration,
+  delay: Duration,
+  now: Duration,
+) -> Duration {
+  let target = duration.add(planned, delay)
+  case whole_seconds(now) - whole_seconds(target) > resync_after_seconds {
+    True -> now
+    False -> target
+  }
+}
+
+const resync_after_seconds: Int = 60
+
+fn whole_seconds(period: Duration) -> Int {
+  let #(seconds, _nanoseconds) = duration.to_seconds_and_nanoseconds(period)
+  seconds
+}
+
 /// Waits for the next time, surfaces the app, and reports what happened.
-pub fn step(app: String, times: List(TimeOfDay), effects: Effects) -> Step {
-  case schedule.next(times, effects.now()) {
+pub fn step(
+  app: String,
+  times: List(TimeOfDay),
+  effects: Effects,
+  from now: Duration,
+) -> Step {
+  case schedule.next(times, now) {
     Error(schedule.NothingToSchedule) -> Idle
     Ok(wake) -> {
       effects.log(
