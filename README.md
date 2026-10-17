@@ -77,43 +77,10 @@ caf or m4a rather than an mp3.
 
 ## While the Mac is asleep
 
-Every wait asks macOS to wake the machine for the next time, with
-`pmset schedule wake`, so a time that comes round while it is asleep still
-happens: the machine wakes itself, `showup` surfaces the app, and rings if you
-are still away.
-
-`pmset` has to run as root, and `showup` never asks for a password. Until you
-allow it, times that arrive while the Mac is asleep are skipped, and `showup`
-says so at each wake. Times work as normal whenever the Mac is awake.
-
-To allow it:
-
-1. Find your username:
-
-   ```sh
-   whoami
-   ```
-
-2. Write one line in a file of its own under `/etc/sudoers.d`, with your own
-   username where `<you>` is:
-
-   ```
-   <you> ALL=(root) NOPASSWD: /usr/bin/pmset schedule wake
-   ```
-
-3. Install that file through `visudo`, so a typo cannot lock you out of `sudo`:
-
-   ```sh
-   sudo visudo -f /etc/sudoers.d/showup
-   ```
-
-That grants `showup` one passwordless root command and nothing else. To take it
-away again, delete that file.
-
-Two things it will not do. It never cancels the schedule, because
-`pmset schedule cancel` would also clear the wake times the Clock app has
-armed. And a wake will not happen with the lid shut on a MacBook Air, so an
-overnight alarm needs the lid open.
+A time that comes round while the Mac is asleep is skipped, because nothing is
+running to notice it. `showup` works on every time that arrives while the Mac is
+awake, which on a machine left open with a terminal running includes the small
+hours.
 
 ## How it works
 
@@ -150,7 +117,6 @@ and exit with a status code.
 | `showup/schedule.gleam`  | Times of day, and when the next wake is due           |
 | `showup/scheduler.gleam` | The loop, taking its clock and platform calls as arguments |
 | `showup/alarm.gleam`     | Ringing until the user is awake                       |
-| `showup/power.gleam`     | Arming a macOS wake for the next time                 |
 | `showup/macos.gleam`     | Talking to `open`, `lsappinfo`, `ioreg` and `afplay`   |
 | `src/showup_erl.erl`     | The three operations no core library offers         |
 

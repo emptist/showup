@@ -8,7 +8,6 @@ import gleam/time/duration.{type Duration}
 import gleam/time/timestamp
 import showup/alarm
 import showup/macos
-import showup/power
 import showup/schedule
 
 /// Everything the scheduler needs from the outside world, gathered in one
@@ -19,7 +18,6 @@ pub type Effects {
     sleep: fn(Duration) -> Nil,
     show: fn(String) -> macos.Outcome,
     alarm: fn() -> alarm.Outcome,
-    arm_wake: fn(Duration) -> power.Armed,
     log: fn(String) -> Nil,
     warn: fn(String) -> Nil,
   )
@@ -46,9 +44,6 @@ pub fn live_with_alarm(alarm: fn() -> alarm.Outcome) -> Effects {
     sleep: sleep,
     show: macos.show,
     alarm: alarm,
-    arm_wake: fn(delay) {
-      power.arm_wake(timestamp.add(timestamp.system_time(), delay))
-    },
     log: fn(message) { io.println("showup: " <> message) },
     warn: fn(message) { io.println_error("showup: " <> message) },
   )
@@ -128,7 +123,6 @@ pub fn step(
         <> ", in "
         <> describe_delay(wake.delay),
       )
-      report_wake(effects, wake.delay)
       effects.sleep(wake.delay)
       let showed = effects.show(app)
       report(app, showed, effects)
@@ -162,17 +156,6 @@ fn ring(effects: Effects, showed: macos.Outcome) -> alarm.Outcome {
           alarm.Silent(reason: reason)
         }
       }
-  }
-}
-
-/// Asks the Mac to wake itself before the wait, so a time that comes round
-/// while it is asleep still happens. A refusal is reported and otherwise
-/// ignored, because the schedule itself is unaffected.
-fn report_wake(effects: Effects, delay: Duration) -> Nil {
-  case effects.arm_wake(delay) {
-    power.Yes -> effects.log("armed a wake in " <> describe_delay(delay))
-    power.No(reason: reason) ->
-      effects.warn("could not arm a wake: " <> power.advice(reason))
   }
 }
 
