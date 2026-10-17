@@ -1,6 +1,7 @@
 import gleam/io
 import gleam/list
 import gleam/time/duration.{type Duration}
+import showup/alarm
 import showup/cli
 import showup/schedule
 import showup/scheduler
@@ -27,8 +28,20 @@ pub fn main() -> Nil {
     }
     Ok(cli.Help) -> io.println(cli.usage())
     Ok(cli.ShowSchedule(config: config)) -> print_schedule(config)
-    Ok(cli.Show(config: cli.Config(app: app, times: times, dry_run: _))) ->
-      scheduler.run(app, times, scheduler.live())
+    Ok(cli.Show(config: config)) -> start(config)
+  }
+}
+
+fn start(config: cli.Config) -> Nil {
+  let effects = scheduler.live_with_alarm(alarm_for(config.ring))
+  scheduler.run(config.app, config.times, effects)
+}
+
+/// The alarm as asked for: quiet when ringing was switched off.
+fn alarm_for(ring: Bool) -> fn() -> alarm.Outcome {
+  case ring {
+    True -> scheduler.ringing()
+    False -> scheduler.silent()
   }
 }
 

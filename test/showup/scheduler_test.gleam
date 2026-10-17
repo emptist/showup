@@ -3,6 +3,7 @@ import gleam/time/calendar.{type TimeOfDay}
 import gleam/time/duration.{type Duration}
 import gleeunit
 import gleeunit/should
+import showup/alarm
 import showup/macos
 import showup/schedule
 import showup/scheduler
@@ -34,10 +35,19 @@ fn effects(
   now: Duration,
   showing: fn(String) -> macos.Outcome,
 ) -> scheduler.Effects {
+  effects_alarming(now, showing, fn() { alarm.Awake })
+}
+
+fn effects_alarming(
+  now: Duration,
+  showing: fn(String) -> macos.Outcome,
+  alarming: fn() -> alarm.Outcome,
+) -> scheduler.Effects {
   scheduler.Effects(
     now: fn() { now },
     sleep: fn(_) { Nil },
     show: showing,
+    alarm: alarming,
     log: fn(_) { Nil },
     warn: fn(_) { Nil },
   )
@@ -59,6 +69,7 @@ pub fn waits_then_surfaces_the_app_test() {
   |> should.equal(scheduler.Surfaced(
     wake: wake_at(12, 0, 3),
     showed: macos.Launched,
+    rung: alarm.Awake,
   ))
 }
 
@@ -79,6 +90,7 @@ pub fn passes_the_app_name_to_the_platform_test() {
   |> should.equal(scheduler.Surfaced(
     wake: wake_at(12, 0, 3),
     showed: macos.Surfaced,
+    rung: alarm.Awake,
   ))
 }
 
@@ -96,6 +108,7 @@ pub fn reports_a_failure_without_stopping_test() {
   |> should.equal(scheduler.Surfaced(
     wake: wake_at(12, 0, 3),
     showed: macos.Failed(reason: "Unable to find application"),
+    rung: alarm.Awake,
   ))
 }
 
@@ -150,4 +163,43 @@ pub fn gives_up_on_the_plan_after_missing_a_wake_test() {
   scheduler.next_instant(noon(), duration.hours(24), now)
   |> seconds_of
   |> should.equal(seconds_of(now))
+}
+
+pub fn rings_after_surfacing_the_app_test() {
+  let result =
+    scheduler.step(
+      "Safari",
+      [at(12, 0)],
+      effects_alarming(nine_o_clock(), fn(_) { macos.Surfaced }, fn() {
+        alarm.Rung(rings: 3)
+      }),
+      from: nine_o_clock(),
+    )
+  result
+  |> should.equal(scheduler.Surfaced(
+    wake: wake_at(12, 0, 3),
+    showed: macos.Surfaced,
+    rung: alarm.Rung(rings: 3),
+  ))
+}
+
+pub fn stays_quiet_for_an_app_it_could_not_show_test() {
+  // Ringing for an app that is not installed would be noise about nothing.
+  let result =
+    scheduler.step(
+      "Nope",
+      [at(12, 0)],
+      effects_alarming(
+        nine_o_clock(),
+        fn(_) { macos.Failed(reason: "no such app") },
+        fn() { alarm.Rung(rings: 3) },
+      ),
+      from: nine_o_clock(),
+    )
+  result
+  |> should.equal(scheduler.Surfaced(
+    wake: wake_at(12, 0, 3),
+    showed: macos.Failed(reason: "no such app"),
+    rung: alarm.Awake,
+  ))
 }

@@ -32,6 +32,7 @@ pub fn parses_the_documented_example_test() {
       show(cli.Config(
         app: "Safari",
         times: [at(8, 0), at(12, 0), at(16, 0), at(20, 0)],
+        ring: True,
         dry_run: False,
       )),
     ),
@@ -41,7 +42,14 @@ pub fn parses_the_documented_example_test() {
 pub fn parses_long_flags_test() {
   parse(["--app", "Mail", "--times", "9:00"])
   |> should.equal(
-    Ok(show(cli.Config(app: "Mail", times: [at(9, 0)], dry_run: False))),
+    Ok(
+      show(cli.Config(
+        app: "Mail",
+        times: [at(9, 0)],
+        ring: True,
+        dry_run: False,
+      )),
+    ),
   )
 }
 
@@ -52,6 +60,7 @@ pub fn parses_flags_with_equals_test() {
       show(cli.Config(
         app: "Slack",
         times: [at(9, 0), at(17, 0)],
+        ring: True,
         dry_run: False,
       )),
     ),
@@ -65,6 +74,7 @@ pub fn parses_the_dry_run_flag_test() {
       cli.ShowSchedule(config: cli.Config(
         app: "Mail",
         times: [at(9, 0)],
+        ring: True,
         dry_run: True,
       )),
     ),
@@ -75,7 +85,12 @@ pub fn collects_repeated_time_flags_test() {
   parse(["-a", "Mail", "-t", "9", "--times", "17"])
   |> should.equal(
     Ok(
-      show(cli.Config(app: "Mail", times: [at(9, 0), at(17, 0)], dry_run: False)),
+      show(cli.Config(
+        app: "Mail",
+        times: [at(9, 0), at(17, 0)],
+        ring: True,
+        dry_run: False,
+      )),
     ),
   )
 }
@@ -84,7 +99,12 @@ pub fn sorts_and_deduplicates_times_test() {
   parse(["-a", "Mail", "-t", "17:00,9:00,17:00"])
   |> should.equal(
     Ok(
-      show(cli.Config(app: "Mail", times: [at(9, 0), at(17, 0)], dry_run: False)),
+      show(cli.Config(
+        app: "Mail",
+        times: [at(9, 0), at(17, 0)],
+        ring: True,
+        dry_run: False,
+      )),
     ),
   )
 }
@@ -93,7 +113,40 @@ pub fn accepts_an_app_name_with_spaces_test() {
   parse(["-a", "  System Settings  ", "-t", "9"])
   |> should.equal(
     Ok(
-      show(cli.Config(app: "System Settings", times: [at(9, 0)], dry_run: False)),
+      show(cli.Config(
+        app: "System Settings",
+        times: [at(9, 0)],
+        ring: True,
+        dry_run: False,
+      )),
+    ),
+  )
+}
+
+pub fn stays_silent_when_asked_to_test() {
+  parse(["-a", "Mail", "-t", "9", "--no-ring"])
+  |> should.equal(
+    Ok(
+      show(cli.Config(
+        app: "Mail",
+        times: [at(9, 0)],
+        ring: False,
+        dry_run: False,
+      )),
+    ),
+  )
+}
+
+pub fn rings_unless_asked_not_to_test() {
+  parse(["-a", "Mail", "-t", "9"])
+  |> should.equal(
+    Ok(
+      show(cli.Config(
+        app: "Mail",
+        times: [at(9, 0)],
+        ring: True,
+        dry_run: False,
+      )),
     ),
   )
 }

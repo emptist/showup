@@ -5,7 +5,13 @@ import showup/schedule
 
 /// A validated request, ready to be scheduled or described.
 pub type Config {
-  Config(app: String, times: List(TimeOfDay), dry_run: Bool)
+  Config(
+    app: String,
+    times: List(TimeOfDay),
+    /// Ring when nobody is at the machine, so a sleeping user is woken.
+    ring: Bool,
+    dry_run: Bool,
+  )
 }
 
 pub type Command {
@@ -27,11 +33,11 @@ pub type Error {
 }
 
 type Options {
-  Options(app: String, times: List(TimeOfDay), dry_run: Bool)
+  Options(app: String, times: List(TimeOfDay), ring: Bool, dry_run: Bool)
 }
 
 pub fn parse(argv: List(String)) -> Result(Command, Error) {
-  go(argv, Options(app: "", times: [], dry_run: False))
+  go(argv, Options(app: "", times: [], ring: True, dry_run: False))
 }
 
 fn go(argv: List(String), options: Options) -> Result(Command, Error) {
@@ -49,6 +55,7 @@ fn step(
   case flag {
     "-h" | "--help" -> Ok(Help)
     "-n" | "--dry-run" -> go(rest, Options(..options, dry_run: True))
+    "-q" | "--no-ring" -> go(rest, Options(..options, ring: False))
     _ -> value_step(flag, rest, options)
   }
 }
@@ -95,11 +102,16 @@ fn assign(
 
 fn finish(options: Options) -> Result(Command, Error) {
   case options {
-    Options(app: "", times: _, dry_run: _) -> Error(MissingApp)
-    Options(app: _, times: [], dry_run: _) -> Error(NoTimesGiven)
-    Options(app: app, times: times, dry_run: dry_run) -> {
+    Options(app: "", times: _, ring: _, dry_run: _) -> Error(MissingApp)
+    Options(app: _, times: [], ring: _, dry_run: _) -> Error(NoTimesGiven)
+    Options(app: app, times: times, ring: ring, dry_run: dry_run) -> {
       let config =
-        Config(app: app, times: schedule.normalise(times), dry_run: dry_run)
+        Config(
+          app: app,
+          times: schedule.normalise(times),
+          ring: ring,
+          dry_run: dry_run,
+        )
       case dry_run {
         True -> Ok(ShowSchedule(config: config))
         False -> Ok(Show(config: config))
@@ -129,6 +141,11 @@ pub fn usage() -> String {
     "                        8:00,12:00,16:00,20:00,24:00. A bare hour such",
     "                        as 8 means 8:00.",
     "  -n, --dry-run         Print the next few wake times and exit.",
+    "  -q, --no-ring         Never make a sound, even when nobody is there.",
+    "                       By default showup rings like a phone when the",
+    "                       keyboard and mouse have been untouched for two",
+    "                       minutes, repeating every ten seconds until you",
+    "                       move or six rings have gone by.",
     "  -h, --help            Show this message.",
     "",
     "Both --flag value and --flag=value forms are accepted. A time that has",

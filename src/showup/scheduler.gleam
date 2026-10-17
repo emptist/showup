@@ -5,6 +5,7 @@ import gleam/string
 import gleam/time/calendar.{type TimeOfDay}
 import gleam/time/duration.{type Duration}
 import gleam/time/timestamp
+import showup/alarm
 import showup/macos
 import showup/schedule
 
@@ -15,6 +16,7 @@ pub type Effects {
     now: fn() -> Duration,
     sleep: fn(Duration) -> Nil,
     show: fn(String) -> macos.Outcome,
+    alarm: fn() -> alarm.Outcome,
     log: fn(String) -> Nil,
     warn: fn(String) -> Nil,
   )
@@ -22,21 +24,38 @@ pub type Effects {
 
 /// The outcome of one iteration of the scheduler.
 pub type Step {
-  /// Slept until `wake.at`, then surfaced the app. `showed` is how that went.
-  Surfaced(wake: schedule.Wake, showed: macos.Outcome)
+  /// Slept until `wake.at`, then surfaced the app. `showed` is how that went
+  /// and `rung` is what the alarm made of it.
+  Surfaced(wake: schedule.Wake, showed: macos.Outcome, rung: alarm.Outcome)
   /// There are no times to wait for.
   Idle
 }
 
 /// The effects that talk to the real system clock and to macOS.
 pub fn live() -> Effects {
+  live_with_alarm(ringing())
+}
+
+/// The effects this machine uses, ringing unless the caller asked for silence.
+pub fn live_with_alarm(alarm: fn() -> alarm.Outcome) -> Effects {
   Effects(
     now: local_time_of_day,
     sleep: sleep,
     show: macos.show,
+    alarm: alarm,
     log: fn(message) { io.println("showup: " <> message) },
     warn: fn(message) { io.println_error("showup: " <> message) },
   )
+}
+
+/// The alarm as it behaves by default: quiet only when someone is there.
+pub fn ringing() -> fn() -> alarm.Outcome {
+  fn() { alarm.ring(alarm.default_options(), alarm.live()) }
+}
+
+/// The alarm for someone who has asked for silence.
+pub fn silent() -> fn() -> alarm.Outcome {
+  fn() { alarm.Awake }
 }
 
 /// Surfaces `app` at every time, for as long as the program runs.
@@ -106,8 +125,36 @@ pub fn step(
       effects.sleep(wake.delay)
       let showed = effects.show(app)
       report(app, showed, effects)
-      Surfaced(wake: wake, showed: showed)
+      let rung = ring(effects, showed)
+      Surfaced(wake: wake, showed: showed, rung: rung)
     }
+  }
+}
+
+/// Rings the alarm once the app is up, unless it could not be shown at all.
+///
+/// Ringing for an app that is not installed would be noise about nothing.
+fn ring(effects: Effects, showed: macos.Outcome) -> alarm.Outcome {
+  case showed {
+    macos.Failed(reason: reason) -> {
+      effects.warn("not ringing for an app that could not be shown: " <> reason)
+      alarm.Awake
+    }
+    macos.Launched | macos.Surfaced ->
+      case effects.alarm() {
+        alarm.Awake -> {
+          effects.log("you are at the machine, so no alarm")
+          alarm.Awake
+        }
+        alarm.Rung(rings: rings) -> {
+          effects.log("rang " <> int.to_string(rings) <> " times to be heard")
+          alarm.Rung(rings: rings)
+        }
+        alarm.Silent(reason: reason) -> {
+          effects.warn("could not ring: " <> reason)
+          alarm.Silent(reason: reason)
+        }
+      }
   }
 }
 
