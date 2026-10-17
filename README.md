@@ -76,28 +76,43 @@ caf or m4a rather than an mp3.
 
 ## While the Mac is asleep
 
-Every wait arms a macOS wake with `pmset schedule wake`, so a time that comes
-round while the Mac is asleep still happens: the machine wakes itself, `showup`
-surfaces the app, and rings if you are still away.
+Every wait asks macOS to wake the machine for the next time, with
+`pmset schedule wake`, so a time that comes round while it is asleep still
+happens: the machine wakes itself, `showup` surfaces the app, and rings if you
+are still away.
 
-`pmset` has to run as root for that, and `showup` runs it through
-`sudo -n` so an unattended run fails fast rather than hanging on a password
-prompt. Until the permission is granted it says so once per wake and carries on
-— times still work whenever the Mac is awake, and the times that arrive while
-it sleeps are skipped.
+`pmset` has to run as root, and `showup` never asks for a password. Until you
+allow it, times that arrive while the Mac is asleep are skipped, and `showup`
+says so at each wake. Times work as normal whenever the Mac is awake.
 
-To allow it, add one line for your user to a file in `/etc/sudoers.d`:
+To allow it:
 
-```
-your-user ALL=(root) NOPASSWD: /usr/bin/pmset schedule wake
-```
+1. Find your username:
 
-Write it with `sudo visudo -f /etc/sudoers.d/showup`, so a typo cannot lock you
-out of `sudo`.
+   ```sh
+   whoami
+   ```
 
-Two things this does not do: it never cancels the schedule, because
+2. Write one line in a file of its own under `/etc/sudoers.d`, with your own
+   username where `<you>` is:
+
+   ```
+   <you> ALL=(root) NOPASSWD: /usr/bin/pmset schedule wake
+   ```
+
+3. Install that file through `visudo`, so a typo cannot lock you out of `sudo`:
+
+   ```sh
+   sudo visudo -f /etc/sudoers.d/showup
+   ```
+
+That grants `showup` one passwordless root command and nothing else. To take it
+away again, delete that file.
+
+Two things it will not do. It never cancels the schedule, because
 `pmset schedule cancel` would also clear the wake times the Clock app has
-armed, and a wake will not happen with the lid shut on a MacBook Air.
+armed. And a wake will not happen with the lid shut on a MacBook Air, so an
+overnight alarm needs the lid open.
 
 ## How it works
 

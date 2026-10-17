@@ -28,8 +28,8 @@ pub fn explains_a_missing_permission_test() {
   |> should.equal(
     "pmset needs to run as root to arm a wake, so times that come while the "
     <> "Mac is asleep are being skipped. To allow it, add "
-    <> "\"your-user ALL=(root) NOPASSWD: /usr/bin/pmset schedule wake\""
-    <> " to a file under /etc/sudoers.d.",
+    <> "\"<you> ALL=(root) NOPASSWD: /usr/bin/pmset schedule wake\""
+    <> " to a file under /etc/sudoers.d, where <you> is the output of whoami.",
   )
 }
 
@@ -38,8 +38,8 @@ pub fn explains_a_missing_password_test() {
   |> should.equal(
     "pmset needs to run as root to arm a wake, so times that come while the "
     <> "Mac is asleep are being skipped. To allow it, add "
-    <> "\"your-user ALL=(root) NOPASSWD: /usr/bin/pmset schedule wake\""
-    <> " to a file under /etc/sudoers.d.",
+    <> "\"<you> ALL=(root) NOPASSWD: /usr/bin/pmset schedule wake\""
+    <> " to a file under /etc/sudoers.d, where <you> is the output of whoami.",
   )
 }
 

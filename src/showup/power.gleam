@@ -75,8 +75,8 @@ pub fn advice(reason: String) -> String {
     True ->
       "pmset needs to run as root to arm a wake, so times that come while the "
       <> "Mac is asleep are being skipped. To allow it, add "
-      <> quoted("your-user ALL=(root) NOPASSWD: /usr/bin/pmset schedule wake")
-      <> " to a file under /etc/sudoers.d."
+      <> quoted("<you> ALL=(root) NOPASSWD: /usr/bin/pmset schedule wake")
+      <> " to a file under /etc/sudoers.d, where <you> is the output of whoami."
     False -> reason
   }
 }
