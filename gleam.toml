@@ -1,0 +1,16 @@
+name = "intime"
+version = "1.0.0"
+target = "erlang"
+description = "Bring a macOS app to the foreground at the times you choose."
+licences = ["Apache-2.0"]
+
+[dependencies]
+gleam_stdlib = ">= 1.0.0 and < 2.0.0"
+gleam_time = ">= 1.11.0 and < 2.0.0"
+
+[dev_dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"
+
+[[bin]]
+name = "showup"
+entry-module = "intime"
