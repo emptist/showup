@@ -67,11 +67,11 @@ pub fn does_not_play_anything_when_the_user_is_there_test() {
   alarm.ring(options(6), watched) |> should.equal(alarm.Awake)
 }
 
-pub fn rings_the_sound_macos_uses_for_a_phone_test() {
+pub fn rings_the_sound_an_incoming_facetime_call_makes_test() {
   // A full path rather than a friendly name, because showup plays whatever it
-  // is given. The telephony sounds are the only ringing ones macOS ships.
+  // is given.
   alarm.ringback_tone
   |> should.equal(
-    "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/telephony/ringback_tone_ansi.caf",
+    "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/facetime/multiway_invitation.caf",
   )
 }

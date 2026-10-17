@@ -61,9 +61,9 @@ showup -a Mail -t 9:00 --no-ring      # never make a sound
 ## Waking you up
 
 Bringing a window to the front does nothing to someone who is asleep at the
-keyboard, so by default each wake also rings: it plays the ringback tone macOS
-uses when a phone rings, then repeats it every ten seconds until the keyboard or
-mouse is touched, giving up after six rings.
+keyboard, so by default each wake also rings: it plays the sound macOS makes
+when a FaceTime call arrives, then repeats it every five seconds until the
+keyboard or mouse is touched, giving up after six rings.
 
 It only makes that noise if nobody has touched anything for two minutes, since
 someone already sitting there does not need waking. Whether they are there is

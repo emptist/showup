@@ -1,10 +1,11 @@
 import gleam/time/duration.{type Duration}
 import showup/macos
 
-/// The sound macOS plays when a phone rings, which is the closest thing on the
-/// system to the noise you want when someone is asleep at this machine.
+/// The sound macOS plays when a FaceTime call arrives. It is only 2.2 seconds,
+/// so it is heard four times as often for the same alarm length as a phone
+/// ringback tone would be.
 pub const ringback_tone: String =
-  "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/telephony/ringback_tone_ansi.caf"
+  "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/facetime/multiway_invitation.caf"
 
 /// How hard `showup` tries to wake someone up.
 pub type Options {
@@ -48,7 +49,7 @@ pub fn live() -> Effects {
 pub fn default_options() -> Options {
   Options(
     idle_after: duration.minutes(2),
-    between: duration.seconds(10),
+    between: duration.seconds(5),
     give_up_after: 6,
   )
 }
