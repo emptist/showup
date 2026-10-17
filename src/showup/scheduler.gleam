@@ -70,11 +70,11 @@ fn report(app: String, showed: macos.Outcome, effects: Effects) -> Nil {
   case showed {
     macos.Launched -> effects.log("launched " <> app)
     macos.Surfaced -> effects.log("brought " <> app <> " to the foreground")
-    macos.SurfacedWithoutRaise(reason: reason) ->
+    macos.CouldNotRaise(reason: reason) ->
       effects.warn(
-        "could not raise "
+        "surfaced "
         <> app
-        <> ", grant Accessibility permission to this program: "
+        <> " but could not raise its window, grant Accessibility permission to this program: "
         <> reason,
       )
     macos.Failed(reason: reason) ->

@@ -93,13 +93,13 @@ pub fn reports_an_app_it_could_not_raise_test() {
       "Safari",
       [at(12, 0)],
       effects(nine_o_clock(), fn(_) {
-        macos.SurfacedWithoutRaise(reason: "not allowed")
+        macos.CouldNotRaise(reason: "not allowed")
       }),
     )
   result
   |> should.equal(scheduler.Surfaced(
     wake: wake_at(12, 0, 3),
-    showed: macos.SurfacedWithoutRaise(reason: "not allowed"),
+    showed: macos.CouldNotRaise(reason: "not allowed"),
   ))
 }
 

@@ -7,10 +7,10 @@ pub type Outcome {
   Launched
   /// The app was already running and has been brought to the front.
   Surfaced
-  /// The app came to the front but macOS would not raise its window. This
+  /// The app came to the front but its window could not be raised. This
   /// normally means the program running `showup` has not been granted
   /// Accessibility permission in System Settings > Privacy & Security.
-  SurfacedWithoutRaise(reason: String)
+  CouldNotRaise(reason: String)
   /// The app could not be surfaced at all, most likely because it is not
   /// installed.
   Failed(reason: String)
@@ -26,29 +26,28 @@ pub fn show(app: String) -> Outcome {
     Error(reason) -> Failed(reason: reason)
     Ok(_) ->
       case raise(app) {
-        Error(reason) ->
-          case was_running {
-            True -> SurfacedWithoutRaise(reason: reason)
-            False -> Launched
-          }
         Ok(_) ->
           case was_running {
             True -> Surfaced
             False -> Launched
           }
+        Error(reason) -> CouldNotRaise(reason: reason)
       }
   }
 }
 
 /// Whether the app is running already, asked without launching it.
+///
+/// `lsappinfo` is used rather than an AppleScript query because asking an app
+/// about itself needs Automation permission, which many terminals are not
+/// granted. A refused query is indistinguishable from the app not running, and
+/// would report an activation as a launch.
+///
+/// `lsappinfo info` prints the app's record when it is running and prints
+/// nothing at all when it is not.
 fn is_running(app: String) -> Bool {
-  case
-    exec("/usr/bin/osascript", [
-      "-e",
-      "application \"" <> app <> "\" is running",
-    ])
-  {
-    Ok(answer) -> string.trim(answer) == "true"
+  case exec("/usr/bin/lsappinfo", ["info", app]) {
+    Ok(record) -> !string.is_empty(string.trim(record))
     Error(_) -> False
   }
 }
