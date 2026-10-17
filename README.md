@@ -74,6 +74,31 @@ turns the sound off.
 `afplay` cannot play mp3, so a sound of your own would need to be a wav, aiff,
 caf or m4a rather than an mp3.
 
+## While the Mac is asleep
+
+Every wait arms a macOS wake with `pmset schedule wake`, so a time that comes
+round while the Mac is asleep still happens: the machine wakes itself, `showup`
+surfaces the app, and rings if you are still away.
+
+`pmset` has to run as root for that, and `showup` runs it through
+`sudo -n` so an unattended run fails fast rather than hanging on a password
+prompt. Until the permission is granted it says so once per wake and carries on
+— times still work whenever the Mac is awake, and the times that arrive while
+it sleeps are skipped.
+
+To allow it, add one line for your user to a file in `/etc/sudoers.d`:
+
+```
+your-user ALL=(root) NOPASSWD: /usr/bin/pmset schedule wake
+```
+
+Write it with `sudo visudo -f /etc/sudoers.d/showup`, so a typo cannot lock you
+out of `sudo`.
+
+Two things this does not do: it never cancels the schedule, because
+`pmset schedule cancel` would also clear the wake times the Clock app has
+armed, and a wake will not happen with the lid shut on a MacBook Air.
+
 ## How it works
 
 Surfacing an application is one command that ships with macOS: `open -a <app>`.
@@ -104,6 +129,7 @@ than home grown types.
 | `showup/schedule.gleam`  | Times of day, and when the next wake is due           |
 | `showup/scheduler.gleam` | The loop, taking its clock and platform calls as arguments |
 | `showup/alarm.gleam`     | Ringing until the user is awake                       |
+| `showup/power.gleam`     | Arming a macOS wake for the next time                 |
 | `showup/macos.gleam`     | Talking to `open`, `lsappinfo`, `ioreg` and `afplay`   |
 | `src/showup_erl.erl`     | The few operations that need Erlang                  |
 

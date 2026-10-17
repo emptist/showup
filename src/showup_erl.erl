@@ -35,7 +35,11 @@ sleep_ms(Milliseconds) ->
 %% Runs an executable directly, without a shell, and captures its output.
 %%
 %% Arguments are passed as a list, so they never need quoting or escaping.
--spec run(file:filename_all(), [string()]) -> {ok, string()} | {error, string()}.
+%%
+%% Both the output and the error message are binaries rather than lists of
+%% characters, because that is what a Gleam string is on Erlang and anything
+%% that treats it as a binary fails at runtime otherwise.
+-spec run(file:filename_all(), [string()]) -> {ok, binary()} | {error, binary()}.
 run(Executable, Arguments) ->
     try erlang:open_port(
         {spawn_executable, Executable},
@@ -51,7 +55,7 @@ run(Executable, Arguments) ->
         Port ->
             {Status, Output} = collect(Port, <<>>),
             case Status of
-                0 -> {ok, binary_to_list(Output)};
+                0 -> {ok, Output};
                 _ -> {error, describe(Status, Output)}
             end
     catch
@@ -71,7 +75,15 @@ collect(Port, Acc) ->
     end.
 
 describe(Status, Output) ->
-    case string:trim(binary_to_list(Output), both, "\r\n \t") of
-        "" -> lists:flatten(io_lib:format("exit status ~B", [Status]));
+    case trim(Output) of
+        <<>> -> list_to_binary(io_lib:format("exit status ~B", [Status]));
         Message -> Message
+    end.
+
+%% `string:trim/3` may hand back a list of characters, so the result is put
+%% back into a binary for the caller.
+trim(Binary) when is_binary(Binary) ->
+    case string:trim(Binary, both, "\r\n \t") of
+        Trimmed when is_binary(Trimmed) -> Trimmed;
+        Trimmed -> list_to_binary(Trimmed)
     end.

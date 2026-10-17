@@ -5,6 +5,7 @@ import gleeunit
 import gleeunit/should
 import showup/alarm
 import showup/macos
+import showup/power
 import showup/schedule
 import showup/scheduler
 
@@ -38,6 +39,15 @@ fn effects(
   effects_alarming(now, showing, fn() { alarm.Awake })
 }
 
+fn armed_effects(
+  now: Duration,
+  showing: fn(String) -> macos.Outcome,
+  arming: fn(Duration) -> power.Armed,
+) -> scheduler.Effects {
+  effects_alarming(now, showing, fn() { alarm.Awake })
+  |> fn(base) { scheduler.Effects(..base, arm_wake: arming) }
+}
+
 fn effects_alarming(
   now: Duration,
   showing: fn(String) -> macos.Outcome,
@@ -48,6 +58,7 @@ fn effects_alarming(
     sleep: fn(_) { Nil },
     show: showing,
     alarm: alarming,
+    arm_wake: fn(_) { power.No(reason: "not permitted") },
     log: fn(_) { Nil },
     warn: fn(_) { Nil },
   )
@@ -200,6 +211,36 @@ pub fn stays_quiet_for_an_app_it_could_not_show_test() {
   |> should.equal(scheduler.Surfaced(
     wake: wake_at(12, 0, 3),
     showed: macos.Failed(reason: "no such app"),
+    rung: alarm.Awake,
+  ))
+}
+
+pub fn arms_a_wake_before_waiting_test() {
+  scheduler.step(
+    "Safari",
+    [at(12, 0)],
+    armed_effects(nine_o_clock(), fn(_) { macos.Surfaced }, fn(_) { power.Yes }),
+    from: nine_o_clock(),
+  )
+  |> should.equal(scheduler.Surfaced(
+    wake: wake_at(12, 0, 3),
+    showed: macos.Surfaced,
+    rung: alarm.Awake,
+  ))
+}
+
+pub fn carries_on_when_the_wake_could_not_be_armed_test() {
+  scheduler.step(
+    "Safari",
+    [at(12, 0)],
+    armed_effects(nine_o_clock(), fn(_) { macos.Surfaced }, fn(_) {
+      power.No(reason: "pmset: This operation must be run as root")
+    }),
+    from: nine_o_clock(),
+  )
+  |> should.equal(scheduler.Surfaced(
+    wake: wake_at(12, 0, 3),
+    showed: macos.Surfaced,
     rung: alarm.Awake,
   ))
 }
