@@ -1,3 +1,4 @@
+import gleam/int
 import gleam/string
 
 /// What happened when macOS was asked to surface an app.
@@ -42,5 +43,37 @@ fn is_running(app: String) -> Bool {
   case exec("/usr/bin/lsappinfo", ["info", app]) {
     Ok(record) -> !string.is_empty(string.trim(record))
     Error(_) -> False
+  }
+}
+
+/// How long the keyboard and mouse have been untouched, in whole seconds.
+///
+/// A locked screen counts as idle, because a locked screen produces no input
+/// either. Zero means either that the user is at the machine or that the
+/// answer could not be read, and either way the caller stays quiet.
+pub fn idle_seconds() -> Int {
+  case exec("/usr/bin/ioreg", ["-r", "-c", "IOHIDSystem", "-d1"]) {
+    Ok(report) -> parse_idle_seconds(report)
+    Error(_) -> 0
+  }
+}
+
+/// Reads the idle time out of an `ioreg` report, which gives it in
+/// nanoseconds as `"HIDIdleTime" = 12624548166`.
+pub fn parse_idle_seconds(report: String) -> Int {
+  case idle_nanoseconds(report) {
+    Ok(nanoseconds) -> nanoseconds / 1_000_000_000
+    Error(_) -> 0
+  }
+}
+
+fn idle_nanoseconds(report: String) -> Result(Int, Nil) {
+  case string.split(report, on: "\"HIDIdleTime\" = ") {
+    [_, field] ->
+      case string.split(field, on: "\n") {
+        [value, ..] -> value |> string.trim |> int.parse
+        [] -> Error(Nil)
+      }
+    _ -> Error(Nil)
   }
 }
