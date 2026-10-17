@@ -77,3 +77,11 @@ fn idle_nanoseconds(report: String) -> Result(Int, Nil) {
     _ -> Error(Nil)
   }
 }
+
+/// Plays a sound file to completion, such as one of the system sounds.
+pub fn play(sound: String) -> Result(Nil, String) {
+  case exec("/usr/bin/afplay", [sound]) {
+    Ok(_) -> Ok(Nil)
+    Error(reason) -> Error(reason)
+  }
+}
