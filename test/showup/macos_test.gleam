@@ -116,12 +116,15 @@ pub fn a_dark_wake_after_a_real_wake_means_the_machine_is_up_test() {
   |> should.equal(macos.Awake)
 }
 
-pub fn a_wake_then_a_sleep_means_the_mac_is_down_again_test() {
-  macos.parse_rest(
-    wake_line <> "\n" <> sleep_line <> "\n",
-    at_second_of_day(22 * 3600),
-  )
-  |> should.equal(macos.Awake)
+pub fn a_log_ending_at_a_sleep_reads_as_slept_test() {
+  // Chronological: sleep at 21:16, wake at 21:18, down again at 23:39. The
+  // last thing the log records is a Sleep, so that is the answer, whatever
+  // the individual timestamps look like read on their own. The old version
+  // of this fixture listed the two lines out of order and so was asserting
+  // against the very mistake this parser was rewritten to remove.
+  let log = sleep_line <> "\n" <> wake_line <> "\n" <> real_sleep_line <> "\n"
+  macos.parse_rest(log, at_second_of_day(23 * 3600 + 45 * 60))
+  |> should.equal(macos.Slept)
 }
 
 pub fn an_empty_log_means_we_know_nothing_test() {
@@ -190,5 +193,48 @@ pub fn a_sleep_with_no_wake_at_all_still_reads_as_slept_test() {
 /// followed by a Wake, and is not something we slept through.
 pub fn a_sleep_answered_by_an_older_wake_is_not_a_missed_nap_test() {
   let log = real_sleep_line <> "\n" <> real_wake_line <> "\n"
+  macos.parse_rest(log, at(9, 0, 0)) |> should.equal(macos.Awake)
+}
+
+/// Second real overnight test, and the one that failed. The log straddles
+/// midnight: last night's wake is at 23:45 and tonight's sleep is at 00:17,
+/// so the wake's number looks larger than the sleep's even though the log
+/// says the opposite. Read by timestamp, this reports a machine that never
+/// slept — on a night it plainly slept for over five minutes.
+const midnight_wake_line: String =
+  "2026-10-18 23:45:01 +0800 Wake                \tWake from Deep Idle [CDNVA] : due to NUB.SPMI0Sw3IRQ nub-spmi.0x02 rtc/HID Activity Using BATT (Charge:47%)           "
+
+const midnight_sleep_line: String =
+  "2026-10-19 00:17:20 +0800 Sleep               \tEntering Sleep state due to 'Software Sleep pid=660':TCPKeepAlive=active Using AC (Charge:60%) 341 secs  "
+
+const midnight_rtc_wake_line: String =
+  "2026-10-19 00:23:01 +0800 Wake                \tWake from Deep Idle [CDNVA] : due to NUB.SPMI0Sw3IRQ nub-spmi.0x02 rtc/HID Activity Using AC (Charge:60%)           "
+
+pub fn a_log_straddling_midnight_still_reads_as_slept_test() {
+  let log =
+    midnight_wake_line
+    <> "\n"
+    <> midnight_sleep_line
+    <> "\n"
+    <> midnight_rtc_wake_line
+    <> "\n"
+  macos.parse_rest(log, at(0, 23, 3)) |> should.equal(macos.Slept)
+}
+
+pub fn a_log_straddling_midnight_with_no_wake_yet_reads_as_slept_test() {
+  let log = midnight_wake_line <> "\n" <> midnight_sleep_line <> "\n"
+  macos.parse_rest(log, at(0, 23, 1)) |> should.equal(macos.Slept)
+}
+
+pub fn a_log_straddling_midnight_that_woke_properly_is_not_slept_test() {
+  // Yesterday's sleep, last night's wake, and a machine that has been up
+  // since. Yesterday's 23:45 must not be mistaken for a fresh wake today.
+  let log =
+    real_sleep_line
+    <> "\n"
+    <> midnight_wake_line
+    <> "\n"
+    <> dark_wake_line
+    <> "\n"
   macos.parse_rest(log, at(9, 0, 0)) |> should.equal(macos.Awake)
 }

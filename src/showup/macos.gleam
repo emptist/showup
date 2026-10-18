@@ -287,7 +287,11 @@ const rest_query: String =
 /// anything during it, so it counts as `Awake` — software that rings at
 /// nobody into a dark screen helps no one.
 pub fn parse_rest(log: String, now: Duration) -> Rest {
-  let entries = list.filter_map(string.split(log, on: "\n"), entry)
+  let entries =
+    log
+    |> string.split(on: "\n")
+    |> list.filter_map(entry)
+    |> list.filter(fn(one) { one.event == "Sleep" || one.event == "Wake" })
   case entries {
     [] -> Unknown
     _ -> classify(entries, now)
@@ -309,43 +313,50 @@ fn entry(line: String) -> Result(Entry, Nil) {
   }
 }
 
-/// Decides from the tail of the log, using the whole shape of it rather than
-/// just its last line.
+/// Decides from the tail of the log.
 ///
-/// The last line alone is not enough, and getting that wrong is exactly what
-/// broke the first attempt. `showup` asks the power log the instant the VM
-/// resumes, which is a fraction of a second after the kernel wakes the CPU —
-/// before powerd has written the `Wake` line. On a real wake the log
-/// therefore still *ends at the `Sleep`*, and reading that as "the machine
-/// never went down" is the one wrong answer that matters, because it is the
-/// only moment anyone asks.
+/// Order is taken from the log's own line order, never from comparing
+/// timestamps. `pmset -g log` prints oldest first, so position is already
+/// the chronology, and comparing parsed times would break at midnight: the
+/// wake before last is at 23:45 and the sleep after it is at 00:17, so the
+/// numbers say the wake is later when the log says the opposite. That bug
+/// read a real overnight wake as a machine that had never slept.
 ///
-/// So the question is not "what was the last event" but "did we go down after
-/// our last recorded wake". A `Sleep` that comes after every `Wake` in the
-/// tail means we did go down, whatever the log has not caught up with yet.
+/// So: did the log go down to sleep after its last recorded wake? If the
+/// last thing that happened was a Sleep, we did — and that also covers the
+/// case where the log has not caught up with the wake yet, which is the
+/// normal state a fraction of a second after the kernel resumes us.
+///
+/// DarkWake entries are filtered out before this, which is what makes it
+/// robust: hours of Power Nap maintenance wakes sit between our Sleep and
+/// the wake still being written, and they must not hide the sleep.
 fn classify(entries: List(Entry), now: Duration) -> Rest {
-  let last_sleep = last_at(entries, "Sleep")
-  let last_wake = last_at(entries, "Wake")
-  case last_sleep {
-    option.None ->
+  let #(went_down_after, last_wake) = fold(entries, #(False, option.None), step)
+  case went_down_after {
+    True -> Slept
+    False ->
       case last_wake {
         option.None -> Unknown
         option.Some(at) -> recently(at, now)
       }
-    option.Some(slept_at) ->
-      case last_wake {
-        option.Some(woke_at) if woke_at > slept_at -> recently(woke_at, now)
-        _ -> Slept
-      }
   }
 }
 
-fn last_at(entries: List(Entry), event: String) -> Option(Int) {
-  let matching = list.filter(entries, fn(one) { one.event == event })
-  case list.last(matching) {
-    Error(Nil) -> option.None
-    Ok(Entry(at: at, ..)) -> option.Some(at)
+/// Remembers whether the log's last down/up transition was down, and when the
+/// last full wake was.
+fn step(seen: #(Bool, Option(Int)), entry: Entry) -> #(Bool, Option(Int)) {
+  case entry.event {
+    "Sleep" -> #(True, seen.1)
+    _ -> #(False, option.Some(entry.at))
   }
+}
+
+fn fold(
+  entries: List(Entry),
+  from initial: #(Bool, Option(Int)),
+  with each: fn(#(Bool, Option(Int)), Entry) -> #(Bool, Option(Int)),
+) -> #(Bool, Option(Int)) {
+  list.fold(entries, initial, each)
 }
 
 fn recently(at: Int, now: Duration) -> Rest {
