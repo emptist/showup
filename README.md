@@ -184,6 +184,18 @@ Measured on a genuine overnight wake:
 01:43:02  the sleep finally returns          five minutes later
 ```
 
+And measured directly, with the machine asleep for a known interval:
+
+```
+$ erl -noshell -eval 'A=erlang:monotonic_time(millisecond),
+    B=erlang:system_time(millisecond), timer:sleep(150000), ...'
+
+  monotonic 150000        what Erlang's timer counted
+  system    256000        what actually happened
+             ^^^^^^ 106 seconds the machine was asleep, and the timer
+                     never saw them
+```
+
 The machine was awake and running for the last five of those minutes. It
 was waiting for a clock that could not see the time it had already lost.
 
