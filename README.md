@@ -89,28 +89,37 @@ A `DarkWake` — the machine coming up for network and mail maintenance with
 the screen still off — is deliberately *not* program 2. Nobody can see or hear
 anything during one, and your Mac does it several hundred times a night.
 
-The two are told apart by `pmset -g log`. The line that matters is the last
-one, and it only counts if it is the wake that just released us: `pmset`
-records how long each wake takes, and it is routinely a fraction of a second,
-so a wake from this morning reads as nothing like a wake from a moment ago.
+### How it knows the difference
 
-Order comes from the log's **line order**, never from comparing timestamps.
-`pmset` prints oldest first, so position already is the chronology, and
-comparing parsed times breaks at midnight — the wake before last at 23:45
-outnumbers the sleep after it at 00:17, and a real overnight wake gets read
-as a machine that never slept.
+The clock cannot say, because a sleeping and a running Mac report the same
+time. Neither can the power log, as it turns out — see below.
 
-### Not knowing counts as asleep
+What answers it is the keyboard idle counter. It runs only while the machine
+is up, so it **freezes across a sleep and resumes where it stopped**. Two
+readings and the length of the wait settle it:
 
-If the log cannot be read, `showup` rings anyway. That is deliberate, and it
-is the opposite of the cautious choice.
+```
+00:37:12  idle = 5.97s     just before the Mac went down
+00:43:01  idle = 8.31s     the RTC alarm brought it back, 353s later
+```
 
-Raising a window at a machine nobody is looking at achieves nothing at all.
-The alarm is the only part of the program that can still do something when
-the user is asleep, so the two possible mistakes are not equally bad: a ring
-that stops early is a few seconds of noise and a hand on the keyboard, while
-a ring that never starts means the entire wake was theatre. When the
-evidence is thin, the loud reading is the right one.
+A machine awake for the whole of that wait would have reached 359. So: if the
+idle counter advanced far less than the wall clock did, the machine slept.
+
+The bias is toward ringing. A counter that went *backwards* means input
+arrived, so the machine was up and someone was using it. A counter that barely
+moved on a machine that never slept looks identical to a freeze, and costs one
+ring that stops on the next reading — which is the right trade, because the
+alternative is a wake that is theatre.
+
+> **Why not `pmset -g log`, which does record every sleep and wake?** It was
+> tried, and it fails on a race that cannot be won. The log is written by
+> powerd, which has not necessarily recorded our wake by the time we ask — and
+> asking is the only moment anyone asks. Reading it the instant the VM resumes
+> finds a tail ending at the wake from twenty minutes earlier, with our sleep
+> and our wake both missing, and concludes the machine never went down. Three
+> nights of real tests produced three silent nights from three different
+> causes. The idle counter has no such window.
 
 ### Waking early, so the window is punctual
 
