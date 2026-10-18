@@ -185,15 +185,25 @@ pub type Plan {
   /// the window and stop — no sound, and no waiting for a login that is not
   /// going to happen.
   JustTheWindow
-  /// The Mac was asleep and this is the wake we asked for. A person has to
-  /// be woken, and may have to log in, before a window is any use.
+  /// The Mac was asleep, or we could not tell, and this is the wake we asked
+  /// for. A person has to be woken, and may have to log in, before a window
+  /// is any use.
   RouseThePersonThenTheWindow
 }
 
+/// Not knowing is treated as having slept, and that is a deliberate choice
+/// rather than a cautious one.
+///
+/// Surfacing a window to a machine nobody is looking at achieves nothing.
+/// The alarm is the only part of this program that can do anything at all
+/// when the user is asleep, so the two mistakes are not equally bad: a ring
+/// that stops itself is a few seconds of noise and a hand on the keyboard,
+/// while a ring that never starts means the whole wake was theatre. When the
+/// evidence is thin, the loud reading is the right one.
 pub fn plan_for(rest: macos.Rest) -> Plan {
   case rest {
-    macos.Slept -> RouseThePersonThenTheWindow
-    macos.Awake | macos.Unknown -> JustTheWindow
+    macos.Slept | macos.Unknown -> RouseThePersonThenTheWindow
+    macos.Awake -> JustTheWindow
   }
 }
 
@@ -202,7 +212,7 @@ fn describe_rest(rest: macos.Rest, effects: Effects) -> Nil {
     macos.Slept -> effects.log("the Mac was asleep, waking you up first")
     macos.Awake -> effects.log("the Mac was awake throughout, nothing to wake")
     macos.Unknown ->
-      effects.warn("could not tell whether the Mac slept, surfacing anyway")
+      effects.warn("could not tell whether the Mac slept, waking you up anyway")
   }
 }
 

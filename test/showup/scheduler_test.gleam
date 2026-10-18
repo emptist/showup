@@ -268,11 +268,12 @@ pub fn a_sleeping_machine_wakes_the_person_first_test() {
   |> should.equal(scheduler.RouseThePersonThenTheWindow)
 }
 
-/// Not knowing is treated as not knowing: the least intrusive reading, so
-/// no noise is made on a guess.
-pub fn an_unknown_rest_only_needs_the_window_test() {
+/// Not knowing is treated as having slept. A window raised at a machine
+/// nobody is looking at achieves nothing, so when the evidence is thin the
+/// loud reading wins.
+pub fn an_unknown_rest_wakes_the_person_too_test() {
   scheduler.plan_for(macos.Unknown)
-  |> should.equal(scheduler.JustTheWindow)
+  |> should.equal(scheduler.RouseThePersonThenTheWindow)
 }
 
 pub fn asks_the_kernel_to_wake_two_minutes_early_test() {

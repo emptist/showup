@@ -94,6 +94,24 @@ one, and it only counts if it is the wake that just released us: `pmset`
 records how long each wake takes, and it is routinely a fraction of a second,
 so a wake from this morning reads as nothing like a wake from a moment ago.
 
+Order comes from the log's **line order**, never from comparing timestamps.
+`pmset` prints oldest first, so position already is the chronology, and
+comparing parsed times breaks at midnight — the wake before last at 23:45
+outnumbers the sleep after it at 00:17, and a real overnight wake gets read
+as a machine that never slept.
+
+### Not knowing counts as asleep
+
+If the log cannot be read, `showup` rings anyway. That is deliberate, and it
+is the opposite of the cautious choice.
+
+Raising a window at a machine nobody is looking at achieves nothing at all.
+The alarm is the only part of the program that can still do something when
+the user is asleep, so the two possible mistakes are not equally bad: a ring
+that stops early is a few seconds of noise and a hand on the keyboard, while
+a ring that never starts means the entire wake was theatre. When the
+evidence is thin, the loud reading is the right one.
+
 ### Waking early, so the window is punctual
 
 Asking the kernel to wake the Mac *at* the scheduled time would make the app
