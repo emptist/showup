@@ -190,63 +190,23 @@ reset. So there is roughly half an hour of guaranteed awake time for the
 `open -a`, `lsappinfo`, ringing loop, and the next `process.sleep` to be
 scheduled before the Mac could possibly nod off again.
 
-### Why we still call `caffeinate`
+### No power assertion
 
-Even with the 30-minute idle window, a brief power assertion is cheap
-insurance. If the Mac was woken for a Power Nap maintenance window that
-lasts only 10–30 seconds, and the scheduler runs right at the tail end of
-that window, the assertion ensures `open -a` and the alarm finish before
-the Mac goes back to sleep. The assertion is started immediately after
-the long sleep returns and held for 180 seconds, after which it exits by
-itself. The Mac can fall back to sleep then.
+There is no `caffeinate` call. It was there for a long time and was removed
+because nothing demonstrated that it did anything on this machine: the
+display state that `-u` is supposed to fix cannot be read back on Apple
+Silicon, so the claim it was making was never checkable.
 
-The call is `caffeinate -i -d -u -t 180 &` launched through `/bin/sh` — the
-`&` makes it fire-and-forget so the Gleam caller does not block waiting
-for it to finish, and `-t 180` means it exits cleanly after 180 seconds with
-no PID tracking or manual kill needed.
+What is left is unprotected, and honestly so. The Mac is woken by `pmset`
+and immediately begins work that takes seconds, not minutes. If a short
+Power Nap window closes underneath it, that work is suspended and resumes
+on the next wake — the loop carries on unchanged, which the sleep evidence
+below shows happening for two hours.
 
-`-u` is the flag that matters most here, and the reason for it is not
-obvious. `pmset schedule wake` wakes the CPU but leaves the display dark.
-`-d` only *prevents* future sleep; it cannot bring back a display that has
-already gone dark. `-u` declares user activity, which does turn the display
-on, speaker-enables the ringback tone, and ensures the window that `open -a`
-raises is one the user can actually see. Without `-u` the whole sequence can
-run headless: the alarm sounds into a dark screen and the window appears
-behind a sleeping display.
-
-180 seconds is sized to cover the work that follows a wake rather than the
-shape of the day: the login poll can spend up to 120 seconds waiting for a
-password, and the ring needs a few more to be heard. Holding the assertion any
-longer than that would start to cost battery and heat for no benefit.
-
-If the assertion cannot be taken, `showup` warns and carries on. The alarm
-and the window matter more than the assertion, so a missing `caffeinate` is
-never a reason to skip a wake.
-
-> **What was checked, and what could not be.** `showup` can confirm that it
-> *asked* for the display — `pmset -g assertions` shows `UserIsActive` held by
-> `caffeinate` while it runs. It cannot confirm that the screen *lit*.
-> `IODisplayWranglerState`, the property that says so, does not exist on Apple
-> Silicon: the `IODisplayWrangler` node is present in the registry but carries
-> only class and identity properties, with or without root, and no display
-> power state is readable anywhere in the tree. That property is Intel-era. On
-> an Intel Mac this would be checkable and should be.
->
-> It does not matter much, because the design already covers the case. Program 2
-> rings until the keyboard or mouse is touched, and touching either is exactly
-> what brings a display up. So by the time the window is raised, either the user
-> moved and the screen is lit, or nobody came back and nothing was lost by
-> raising a window into a dark screen. The alarm is the guarantee; a display
-> query would only restate it.
-
-### When the assertion is useful versus when it is redundant
-
-| Scenario                     | caffeinate needed? | Reason                                              |
-| ---------------------------- | ------------------ | --------------------------------------------------- |
-| Deep idle sleep → user wakes | No (30 min headroom) | Idle timer reset on wake                            |
-| Deep idle sleep → Power Nap  | **Yes**            | Wake window may be short; assertion bridges the gap |
-| Already awake, normal timing | No                 | `open -a` takes milliseconds                        |
-| Wake while on battery        | No difference      | Same mechanism either way                           |
+The cost is a window that is dark until the user touches something. The
+alarm is what closes that gap, and it is unbounded: it rings until a hand
+reaches the keyboard, so the window keeps opening the lead window back up
+for as long as the user needs.
 
 ### Experimental evidence
 
@@ -300,27 +260,16 @@ replaces the 5-minute gap of the test; the mechanism is the same.
    system wakes me." Read the clock again after sleep returns — the
    scheduler already does this via `next_instant`.
 
-2. **Do not hold a power assertion for the entire cycle.** The 30-minute
-   idle window after each wake is already the natural buffer. Holding
-   `caffeinate -i` continuously would defeat the whole point of letting
-   the Mac sleep and costs battery, heat, and wear.
+2. **Do not add a power assertion without a way to check it worked.** One was
+   here for most of this program's life, documented at length, and it was
+   impossible to verify on this hardware — the property that would show it
+   working cannot be read back on Apple Silicon. An assertion you cannot
+   check is a claim, and this project has already shipped several.
 
-3. **`caffeinate -i -d -u -t N` through `/bin/sh` is the correct pattern.**
-   `caffeinate -i -w <pid>` ties the assertion to a specific process and
-   requires correct ownership; `caffeinate -i -d -u -t N` + `&` in a shell is
-   simpler — the timeout is a hard stop, and orphaned caffeinate processes
-   from a crashed parent will exit after the same timeout anyway.
-
-   The `&` is not enough on its own. A backgrounded child keeps the stdout and
-   stderr it inherited, and `child_process.run` reads those to end of stream,
-   so without `>/dev/null 2>&1` the caller blocks until caffeinate exits — the
-   full timeout. That one was invisible to the tests and only showed up in a
-   live run.
-
-4. **The `Effects` type is the boundary.** If you port `showup` to another
-   runtime or another OS, `keep_awake` and `rest` are the two hooks you need:
-   one takes the power assertion, the other reports what the machine was doing
-   while we waited. The scheduler core (and its tests) never call macOS APIs
+3. **The `Effects` type is the boundary.** If you port `showup` to another
+   runtime or another OS, the two hooks you need are `slept_during`, which
+   reports what the machine was doing while we waited, and `show`, which puts
+   the window up. The scheduler core (and its tests) never call macOS APIs
    directly.
 
 ## How it works
@@ -362,7 +311,7 @@ All interaction with the outside world goes through well-known Hex packages:
 | Package          | Used for                                    |
 | ---------------- | ------------------------------------------- |
 | `argv`           | Reading command line arguments              |
-| `child_process`  | Spawning `open -a`, `lsappinfo`, `ioreg`, `afplay`, `caffeinate`, `pmset`, `scutil` |
+| `child_process`  | Spawning `open -a`, `lsappinfo`, `ioreg`, `afplay`, `pmset`, `scutil` |
 | `gleam_time`     | Time-of-day and duration types              |
 | `gleam_erlang`   | `process.sleep`, Erlang VM bindings         |
 
@@ -386,7 +335,7 @@ require any `.erl` source file.
 | `showup/schedule.gleam`  | Times of day, and when the next wake is due                |
 | `showup/scheduler.gleam` | The loop, taking its clock and platform calls as arguments |
 | `showup/alarm.gleam`     | Ringing until the user is awake                            |
-| `showup/macos.gleam`     | `open -a`, `lsappinfo`, `ioreg`, `afplay`, `caffeinate`, `pmset`, `scutil` |
+| `showup/macos.gleam`     | `open -a`, `lsappinfo`, `ioreg`, `afplay`, `pmset`, `scutil`, and the log file |
 
 The parsers in `macos.gleam` are the fragile part and the part that has actually
 broken. `parse_uid` once searched for the substring `UID : ` in `scutil`

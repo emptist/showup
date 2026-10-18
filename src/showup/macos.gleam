@@ -306,40 +306,6 @@ pub fn append_log(line: String) -> Result(Nil, Nil) {
   }
 }
 
-/// Holds three assertions for `seconds` seconds:
-///   - PreventUserIdleSystemSleep    (-i) keep CPU awake
-///   - PreventDisplaySleep            (-d) keep display from going back to sleep
-///   - UserIsActive                   (-u) WAKES THE DISPLAY if it's off
-///
-/// Spawns `caffeinate -i -d -u -t <seconds>` via `/bin/sh ... &` so the
-/// exec call returns immediately — caffeinate runs in the background,
-/// holds the assertions, and exits by itself after the timeout. No PID
-/// tracking needed, no manual kill. Zero or more concurrent assertions
-/// are fine; macOS counts them independently.
-///
-/// `&` alone is not enough. A backgrounded child keeps the stdout and
-/// stderr it inherited, and `exec` reads those to end of stream, so the
-/// caller would block until caffeinate exited — the full timeout. Sending
-/// both to /dev/null closes the pipe immediately, which is what makes the
-/// backgrounding actually return.
-///
-/// The `-u` flag is critical here. `pmset schedule wake` wakes the CPU
-/// but leaves the display dark. `-d` only PREVENTS future sleep — it
-/// cannot turn a display that is already sleeping back on. `-u` declares
-/// user activity, which DOES turn the display on, speaker-enables the
-/// ringback tone, and ensures `open -a` surfaces an app the user can
-/// actually see. Without `-u`, the show + alarm run headless.
-pub fn keep_awake(seconds: Int) -> Result(Nil, String) {
-  let cmd =
-    "/usr/bin/caffeinate -i -d -u -t "
-    <> int.to_string(seconds)
-    <> " >/dev/null 2>&1 &"
-  case exec("/bin/sh", ["-c", cmd]) {
-    Ok(_) -> Ok(Nil)
-    Error(reason) -> Error(reason)
-  }
-}
-
 /// Asks the kernel to wake the Mac at a specific wall-clock datetime.
 ///
 /// Calls `pmset schedule wake "MM/DD/YYYY HH:MM:SS"`. This is a one-shot

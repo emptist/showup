@@ -17,7 +17,6 @@ pub type Effects {
     now: fn() -> Duration,
     sleep: fn(Duration) -> Nil,
     schedule_wake: fn(String) -> Result(Nil, String),
-    keep_awake: fn(Int) -> Result(Nil, String),
     /// How long the keyboard and mouse have been untouched.
     idle_seconds: fn() -> Int,
     /// Whether the machine went to sleep inside a wait beginning at the
@@ -51,7 +50,6 @@ pub fn live(alarm: fn() -> alarm.Outcome) -> Effects {
     now: now,
     sleep: sleep,
     schedule_wake: macos.schedule_wake,
-    keep_awake: macos.keep_awake,
     idle_seconds: macos.idle_seconds,
     slept_during: macos.slept_during,
     show: macos.show,
@@ -134,14 +132,6 @@ pub fn next_instant(
 }
 
 const resync_after_seconds: Int = 60
-
-/// How long to hold the machine awake once the sleep returns.
-///
-/// Sized to cover the work that follows a wake rather than the day: the
-/// login poll can spend up to 120 seconds, and six alarm rings take about
-/// 45 more (a 2.2 second tone plus a 5 second gap each). After this the
-/// Mac is free to sleep again on its own idle timer.
-const keep_awake_seconds: Int = 180
 
 fn whole_seconds(period: Duration) -> Int {
   let #(seconds, _nanoseconds) = duration.to_seconds_and_nanoseconds(period)
@@ -330,17 +320,6 @@ fn sleep_remaining(seconds: Int, effects: Effects) -> Nil {
 /// that the window still goes up on the time, and a caller that blindly
 /// slept for the full lead afterwards would put it back where it started.
 fn rouse(effects: Effects) -> Int {
-  // `pmset schedule wake` wakes the CPU but leaves the display dark. `-u`
-  // declares user activity, which is what actually brings the screen back
-  // and speaker-enables the tone. A Power Nap window can also close again
-  // before the work below finishes, so the assertion is held for as long as
-  // that work can take. Failing to get it is not a reason to skip the wake.
-  case effects.keep_awake(keep_awake_seconds) {
-    Ok(_) -> Nil
-    Error(reason) ->
-      effects.warn("could not hold a power assertion: " <> reason)
-  }
-
   process.spawn(fn() {
     let rung = effects.alarm()
     case rung {
