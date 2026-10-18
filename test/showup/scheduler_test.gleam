@@ -35,7 +35,7 @@ fn effects(
   now: Duration,
   showing: fn(String) -> macos.Outcome,
 ) -> scheduler.Effects {
-  effects_alarming(now, showing, fn() { alarm.Awake })
+  effects_with_idle(now, showing, fn() { alarm.Awake }, 0)
 }
 
 fn effects_alarming(
@@ -43,14 +43,26 @@ fn effects_alarming(
   showing: fn(String) -> macos.Outcome,
   alarming: fn() -> alarm.Outcome,
 ) -> scheduler.Effects {
+  // A large idle value means we consider the machine to have been sleeping,
+  // so the alarm should ring.
+  effects_with_idle(now, showing, alarming, 3600)
+}
+
+fn effects_with_idle(
+  now: Duration,
+  showing: fn(String) -> macos.Outcome,
+  alarming: fn() -> alarm.Outcome,
+  idle_seconds: Int,
+) -> scheduler.Effects {
   scheduler.Effects(
     now: fn() { now },
     sleep: fn(_) { Nil },
     schedule_wake: fn(_) { Ok(Nil) },
     cancel_wake: fn() { Ok(Nil) },
-    keep_awake: fn(_) { Ok(Nil) },
     show: showing,
     alarm: alarming,
+    idle_seconds: fn() { idle_seconds },
+    at_desktop: fn() { True },
     log: fn(_) { Nil },
     warn: fn(_) { Nil },
   )

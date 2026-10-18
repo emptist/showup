@@ -18,9 +18,10 @@ pub type Effects {
     sleep: fn(Duration) -> Nil,
     schedule_wake: fn(String) -> Result(Nil, String),
     cancel_wake: fn() -> Result(Nil, String),
-    keep_awake: fn(Int) -> Result(Nil, String),
     show: fn(String) -> macos.Outcome,
     alarm: fn() -> alarm.Outcome,
+    idle_seconds: fn() -> Int,
+    at_desktop: fn() -> Bool,
     log: fn(String) -> Nil,
     warn: fn(String) -> Nil,
   )
@@ -42,9 +43,10 @@ pub fn live(alarm: fn() -> alarm.Outcome) -> Effects {
     sleep: sleep,
     schedule_wake: macos.schedule_wake,
     cancel_wake: macos.cancel_wake,
-    keep_awake: macos.keep_awake,
     show: macos.show,
     alarm: alarm,
+    idle_seconds: macos.idle_seconds,
+    at_desktop: macos.at_desktop,
     log: fn(message) { io.println("showup: " <> message) },
     warn: fn(message) { io.println_error("showup: " <> message) },
   )
@@ -93,10 +95,10 @@ pub fn next_instant(
 
 const resync_after_seconds: Int = 60
 
-/// Seconds for the power assertion. 60s is long enough to cover
-/// `open -a`, any ringing, and a small drift margin, while still short
-/// enough that the Mac can sleep again within one minute of finishing.
-const keep_awake_seconds: Int = 60
+/// Idle threshold: if the machine has been idle longer than this, we consider
+/// it sleeping and ring the alarm. If idle is below this, the user has been
+/// active recently — just surface the app without ringing.
+const idle_threshold_seconds: Int = 10
 
 fn whole_seconds(period: Duration) -> Int {
   let #(seconds, _nanoseconds) = duration.to_seconds_and_nanoseconds(period)
@@ -137,32 +139,52 @@ pub fn step(
       }
       effects.sleep(wake.delay)
 
-      // Ring → Brighten → Wait → Show. The wait between alarm stopping and
-      // the `open -a` call is crucial: the alarm stops when the user touches
-      // the keyboard, but they are still typing their password. If we call
-      // `open -a` during login, macOS queues it and processes it 30+ seconds
-      // later. A short wait after alarm stops lets the login complete first,
-      // so `open -a` fires into an already-active desktop session.
-      let rung = effects.alarm()
-      case rung {
-        alarm.Awake -> effects.log("you were already awake, skipping alarm")
-        alarm.Rung(rings: rings) ->
-          effects.log("rang " <> int.to_string(rings) <> " times to be heard")
-        alarm.Silent(reason: reason) -> effects.warn("could not ring: " <> reason)
+      // After sleep returns, one of two things happened:
+      //
+      //   1. The Mac stayed awake and the user was doing other work.
+      //      `idle_seconds()` is small — no alarm needed, just surface.
+      //
+      //   2. The Mac was sleeping, pmset woke it. `idle_seconds()` is large.
+      //      Ring until the user touches keyboard/mouse, which wakes the
+      //      display automatically. Then wait for login to finish (if any),
+      //      then surface.
+
+      let idle = effects.idle_seconds()
+
+      case idle > idle_threshold_seconds {
+        True -> {
+          // Scenario 2: machine was sleeping, ring to wake the user.
+          let rung = effects.alarm()
+          case rung {
+            alarm.Awake -> effects.log("you were already awake, skipping alarm")
+            alarm.Rung(rings: rings) ->
+              effects.log(
+                "rang " <> int.to_string(rings) <> " times to be heard",
+              )
+            alarm.Silent(reason: reason) ->
+              effects.warn("could not ring: " <> reason)
+          }
+          // User touched keyboard → system woke + display came on. We may
+          // be at the login window or already at the desktop (autologin).
+          // Ensure we're at the desktop before surfacing — if we're already
+          // there this returns immediately.
+          ensure_at_desktop(effects)
+          let showed = effects.show(app)
+          report(app, showed, effects)
+          Surfaced(wake: wake, showed: showed, rung: rung)
+        }
+        False -> {
+          // Scenario 1: user was already at their desktop, no alarm needed.
+          effects.log(
+            "you were already active (idle "
+            <> int.to_string(idle)
+            <> "s), skipping alarm",
+          )
+          let showed = effects.show(app)
+          report(app, showed, effects)
+          Surfaced(wake: wake, showed: showed, rung: alarm.Awake)
+        }
       }
-
-      case effects.keep_awake(keep_awake_seconds) {
-        Error(reason) -> effects.warn("could not prevent sleep: " <> reason)
-        Ok(_) -> Nil
-      }
-
-      // Give login screen time to process the user's password input.
-      effects.sleep(duration.seconds(5))
-
-      let showed = effects.show(app)
-      report(app, showed, effects)
-
-      Surfaced(wake: wake, showed: showed, rung: rung)
     }
   }
 }
@@ -173,6 +195,31 @@ fn report(app: String, showed: macos.Outcome, effects: Effects) -> Nil {
     macos.Surfaced -> effects.log("brought " <> app <> " to the foreground")
     macos.Failed(reason: reason) ->
       effects.warn("could not show " <> app <> ": " <> reason)
+  }
+}
+
+/// After the alarm stops ringing we know the user is at the machine, but
+/// they may still be on the login window typing their password. If they
+/// autologin, `at_desktop()` returns immediately — nothing to wait for.
+/// If they have a password we poll until the desktop appears, so `open -a`
+/// fires into a real session instead of being queued behind the login.
+///
+/// Gives up after 120 seconds in case they walked away mid-login.
+fn ensure_at_desktop(effects: Effects) -> Nil {
+  poll_until_desktop(effects, 120)
+}
+
+fn poll_until_desktop(effects: Effects, remaining: Int) -> Nil {
+  case effects.at_desktop() {
+    True -> Nil
+    False ->
+      case remaining > 0 {
+        True -> {
+          effects.sleep(duration.seconds(1))
+          poll_until_desktop(effects, remaining - 1)
+        }
+        False -> effects.warn("timed out waiting for login")
+      }
   }
 }
 

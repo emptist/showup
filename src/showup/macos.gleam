@@ -78,6 +78,22 @@ pub fn idle_seconds() -> Int {
   }
 }
 
+/// Whether the user is currently at their desktop (not on the login
+/// window). Checks `scutil State:/Users/ConsoleUser`. Returns True whenever
+/// the ConsoleUser reports a non-zero UID with LoginDoneKey = TRUE — this
+/// covers both autologin (no password set) and the moment a user finishes
+/// typing their password. Returns False while the login window is showing.
+pub fn at_desktop() -> Bool {
+  case exec("/usr/sbin/scutil", ["show", "State:/Users/ConsoleUser"]) {
+    Ok(output) ->
+      string.contains(output, "kCGSessionLoginDoneKey : TRUE")
+      && !string.contains(output, "UID : 0")
+    // If scutil fails for any reason, assume we're at the desktop — better
+    // to show the app than to hang waiting for a login that isn't there.
+    Error(_) -> True
+  }
+}
+
 /// Reads the idle time out of an `ioreg` report, which gives it in
 /// nanoseconds as `"HIDIdleTime" = 12624548166`.
 pub fn parse_idle_seconds(report: String) -> Int {
