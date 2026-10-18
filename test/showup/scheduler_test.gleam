@@ -62,6 +62,7 @@ fn effects_with_idle(
     show: showing,
     alarm: alarming,
     idle_seconds: fn() { idle_seconds },
+    sleep_timer_seconds: fn() { 900 },
     at_desktop: fn() { True },
     log: fn(_) { Nil },
     warn: fn(_) { Nil },

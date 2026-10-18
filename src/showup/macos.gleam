@@ -78,6 +78,19 @@ pub fn idle_seconds() -> Int {
   }
 }
 
+/// The system's display sleep timer, in seconds. This is the value macOS
+/// uses to decide when to put the display to sleep. We read it from
+/// `pmset -g custom`, picking whichever is larger between Battery and AC
+/// Power settings — the Mac might be on either when the wake fires.
+///
+/// Falls back to 900 (15 minutes) if pmset cannot be read.
+pub fn sleep_timer_seconds() -> Int {
+  case exec("/usr/bin/pmset", ["-g", "custom"]) {
+    Ok(output) -> parse_sleep_timer(output)
+    Error(_) -> 900
+  }
+}
+
 /// Whether the user is currently at their desktop (not on the login
 /// window). Checks `scutil State:/Users/ConsoleUser`. Returns True whenever
 /// the ConsoleUser reports a non-zero UID with LoginDoneKey = TRUE — this
@@ -110,6 +123,49 @@ fn idle_nanoseconds(report: String) -> Result(Int, Nil) {
         [value, ..] -> value |> string.trim |> int.parse
         [] -> Error(Nil)
       }
+    _ -> Error(Nil)
+  }
+}
+
+/// Extracts the largest sleep timer value (in minutes) from `pmset -g custom`
+/// output and converts to seconds. pmset reports both Battery and AC Power
+/// sections; we take whichever is larger since the Mac might be on either.
+fn parse_sleep_timer(output: String) -> Int {
+  let lines = string.split(output, on: "\n")
+  let minutes = fold_sleep_lines(lines, 0)
+  minutes * 60
+}
+
+fn fold_sleep_lines(lines: List(String), max_so_far: Int) -> Int {
+  case lines {
+    [] -> max_so_far
+    [line, ..rest] ->
+      case string.contains(line, " sleep ") {
+        True ->
+          case string.contains(line, " displaysleep") {
+            True -> fold_sleep_lines(rest, max_so_far)
+            False ->
+              case extract_number_after(line, "sleep") {
+                Ok(n) -> fold_sleep_lines(rest, int.max(n, max_so_far))
+                Error(_) -> fold_sleep_lines(rest, max_so_far)
+              }
+          }
+        False -> fold_sleep_lines(rest, max_so_far)
+      }
+  }
+}
+
+/// Finds the integer that follows a given keyword in a line of text.
+/// E.g. `extract_number_after(" sleep 15", "sleep")` → `Ok(15)`.
+fn extract_number_after(line: String, keyword: String) -> Result(Int, Nil) {
+  case string.split(line, on: keyword) {
+    [_, rest] -> {
+      let trimmed = string.trim(rest)
+      case string.split(trimmed, on: " ") {
+        [num, ..] -> num |> string.trim |> int.parse
+        [] -> Error(Nil)
+      }
+    }
     _ -> Error(Nil)
   }
 }
