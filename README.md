@@ -271,7 +271,7 @@ replaces the 5-minute gap of the test; the mechanism is the same.
 
 3. **`caffeinate -i -d -u -t N` through `/bin/sh` is the correct pattern.**
    `caffeinate -i -w <pid>` ties the assertion to a specific process and
-   requires correct ownership; `caffeinate -i -t N` + `&` in a shell is
+   requires correct ownership; `caffeinate -i -d -u -t N` + `&` in a shell is
    simpler — the timeout is a hard stop, and orphaned caffeinate processes
    from a crashed parent will exit after the same timeout anyway.
 
