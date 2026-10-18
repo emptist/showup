@@ -1,3 +1,4 @@
+import gleam/option
 import gleam/time/duration
 import gleeunit
 import gleeunit/should
@@ -7,11 +8,13 @@ pub fn main() -> Nil {
   gleeunit.main()
 }
 
-fn options(give_up_after: Int) -> alarm.Options {
+/// A capped alarm, so the loop can be exercised by a test that would
+/// otherwise ring forever. The alarm the program actually installs is
+/// `ringing()`, which sets no cap — see `never_gives_up_on_its_own_test`.
+fn capped_after(give_up_after: Int) -> alarm.Options {
   alarm.Options(
-    idle_after: duration.minutes(2),
     between: duration.seconds(10),
-    give_up_after: give_up_after,
+    give_up_after: option.Some(give_up_after),
   )
 }
 
@@ -24,41 +27,43 @@ fn idle_for(idle_seconds: Int) -> alarm.Effects {
   )
 }
 
-/// Always starts ringing — the "idle threshold" was removed, we ring every
-/// time regardless of whether someone appears to be at the machine. Rings
-/// keep going until the user touches keyboard or mouse, or give_up_after.
-///
-/// This test: baseline=5, idle stays 5 (same as baseline), 5 < 5 never true
-/// → runs to give_up_after.
-pub fn always_rings_until_give_up_when_no_new_activity_test() {
-  alarm.ring(options(6), idle_for(5)) |> should.equal(alarm.Rung(rings: 6))
+fn quiet(give_up_after: Int, effects: alarm.Effects) -> alarm.Outcome {
+  alarm.ring(capped_after(give_up_after), effects)
 }
 
-pub fn baseline_logic_prevents_pre_wakeup_activity_from_stopping_ring_test() {
-  // Baseline=0 (Mac just woken). New activity must drop idle BELOW baseline
-  // to stop. Same value never stops — 0 < 0 is false. So with idle that
-  // always stays 0 we ring all the way to give_up_after.
-  let watched =
+/// The alarm the program installs rings until someone touches something.
+/// This is the statement that a ring which stops on its own has failed.
+pub fn never_gives_up_on_its_own_test() {
+  alarm.default_options().give_up_after |> should.equal(option.None)
+}
+
+pub fn stops_at_the_cap_when_nothing_else_happens_test() {
+  // Nothing changes, and the only thing that ends the ringing is the cap.
+  quiet(6, idle_for(5)) |> should.equal(alarm.Rung(rings: 6))
+}
+
+pub fn baseline_is_read_before_the_first_ring_test() {
+  // Baseline is 5 and idle stays 5. A ring can only stop when idle drops
+  // BELOW the baseline, so an unchanged reading never stops it — which is
+  // what stops the wake itself, or a sudo password typed earlier, from
+  // being mistaken for the user answering.
+  quiet(6, idle_for(5)) |> should.equal(alarm.Rung(rings: 6))
+}
+
+pub fn a_baseline_of_zero_is_never_beaten_by_a_still_zero_test() {
+  // 0 < 0 is false, so a Mac that has just woken — where the idle reading
+  // starts at zero — rings all the way to the cap.
+  let just_woken =
     alarm.Effects(
       idle_seconds: fn() { 0 },
       play: fn(_) { Ok(Nil) },
       sleep: fn(_) { Nil },
     )
-  alarm.ring(options(3), watched) |> should.equal(alarm.Rung(rings: 3))
+  quiet(3, just_woken) |> should.equal(alarm.Rung(rings: 3))
 }
 
-pub fn always_rings_until_give_up_even_when_user_appears_idle_test() {
-  // idle=5 means untouched for 5 seconds. Baseline=5 stays 5, same value
-  // never stops the ring → runs to give_up_after.
-  alarm.ring(options(6), idle_for(5)) |> should.equal(alarm.Rung(rings: 6))
-}
-
-pub fn gives_up_after_the_configured_number_of_rings_test() {
-  alarm.ring(options(6), idle_for(600)) |> should.equal(alarm.Rung(rings: 6))
-}
-
-pub fn rings_only_once_when_asked_to_test() {
-  alarm.ring(options(1), idle_for(600)) |> should.equal(alarm.Rung(rings: 1))
+pub fn rings_once_when_asked_to_test() {
+  quiet(1, idle_for(600)) |> should.equal(alarm.Rung(rings: 1))
 }
 
 pub fn reports_a_sound_it_could_not_play_test() {
@@ -68,20 +73,19 @@ pub fn reports_a_sound_it_could_not_play_test() {
       play: fn(_) { Error("no such file") },
       sleep: fn(_) { Nil },
     )
-  alarm.ring(options(6), silent)
-  |> should.equal(alarm.Silent(reason: "no such file"))
+  quiet(6, silent) |> should.equal(alarm.Silent(reason: "no such file"))
 }
 
-pub fn reports_a_sound_it_could_not_play_when_user_is_there_test() {
-  // Even if the user is right there (idle=0), we still try to play — and if
-  // the sound is missing, we report that rather than silently doing nothing.
-  let watched =
+pub fn reports_a_sound_it_could_not_play_even_when_the_user_is_there_test() {
+  // Even at idle 0 we still try to play, and if the sound is missing we say
+  // so rather than silently doing nothing.
+  let present =
     alarm.Effects(
       idle_seconds: fn() { 0 },
       play: fn(_) { Error("should not be played") },
       sleep: fn(_) { Nil },
     )
-  alarm.ring(options(6), watched)
+  quiet(6, present)
   |> should.equal(alarm.Silent(reason: "should not be played"))
 }
 

@@ -63,18 +63,64 @@ showup -a Mail -t 9:00 --dry-run      # show the plan without waiting
 showup -a Mail -t 9:00 --no-ring      # never make a sound
 ```
 
+## The two programs inside showup
+
+A scheduled wake does one of two completely different jobs, and which one it
+is depends on something the clock cannot tell you: whether the Mac spent the
+wait asleep. So `showup` asks the power log, and branches.
+
+**Program 1 — surface.** The machine was up the whole time. Someone is very
+likely sitting at it. Raise the window, and stop. No sound, no waiting, no
+ceremony. This is the whole job, and it is the job most wakes want.
+
+**Program 2 — rouse.** The Mac was asleep and this is the wake we asked for.
+Take the display off sleep, ring, and wait for the login window if there is
+one. Only then hand over to program 1.
+
+A `DarkWake` — the machine coming up for network and mail maintenance with
+the screen still off — is deliberately *not* program 2. Nobody can see or hear
+anything during one, and your Mac does it several hundred times a night.
+
+The two are told apart by `pmset -g log`. The line that matters is the last
+one, and it only counts if it is the wake that just released us: `pmset`
+records how long each wake takes, and it is routinely a fraction of a second,
+so a wake from this morning reads as nothing like a wake from a moment ago.
+
+### Waking early, so the window is punctual
+
+Asking the kernel to wake the Mac *at* the scheduled time would make the app
+late every single time: the display would come up, the person would have to be
+woken and would have to type a password, and all of that would happen during
+the very minute the app was supposed to appear.
+
+So the kernel is asked for the wake **ahead of the time**, and the work is
+done inside that window:
+
+| Wake falls at | Lead | Why |
+| --- | --- | --- |
+| 07:00 – 21:59 | 1 minute | The machine has usually been up for hours, and whoever owns it is at it |
+| 22:00 – 06:59 | 5 minutes | The machine is likely asleep, and a person has to be woken and may have to log in |
+
+Whatever is left of the window after the rousing is slept out, so the window
+itself still goes up on the time. The five minute lead has to cover the login
+poll on its own — 120 seconds — before any ringing is counted at all.
+
 ## Waking you up
 
-Bringing a window to the front does nothing to someone who is asleep at the
-keyboard, so by default each wake also rings: it plays the sound macOS makes
-when a FaceTime call arrives, then repeats it every five seconds until the
-keyboard or mouse is touched, giving up after six rings.
+When program 2 runs it rings: it plays the sound macOS makes when a FaceTime
+call arrives, and repeats it every five seconds **until the keyboard or mouse
+is touched**. It does not give up on its own, because a ring that stops is a
+ring that failed to wake anyone. It runs in its own process, so nothing else
+waits on it and the only thing that ends it is a hand on the keyboard.
 
-It only makes that noise if nobody has touched anything for two minutes, since
-someone already sitting there does not need waking. Whether they are there is
-read from `ioreg`, which reports how long the keyboard and mouse have been idle;
-a locked screen counts as idle, because it produces no input either. `--no-ring`
-turns the sound off.
+The idle reading is captured *before* the first ring rather than after, so
+that the wake itself, or a `sudo` password typed earlier, cannot be mistaken
+for the user answering. A ring stops when idle drops *below* that baseline,
+meaning new input arrived while the ring was going.
+
+Whether input has been idle at all is read from `ioreg`. A locked screen
+counts as idle, because it produces no input either. `--no-ring` turns the
+sound off completely.
 
 `afplay` cannot play mp3, so a sound of your own would need to be a wav, aiff,
 caf or m4a rather than an mp3.
@@ -116,14 +162,32 @@ insurance. If the Mac was woken for a Power Nap maintenance window that
 lasts only 10–30 seconds, and the scheduler runs right at the tail end of
 that window, the assertion ensures `open -a` and the alarm finish before
 the Mac goes back to sleep. The assertion is started immediately after
-the long sleep returns and held for 90 seconds — enough for all real
-work to complete, after which it exits by itself. The Mac can fall back
-to sleep then.
+the long sleep returns and held for 180 seconds, after which it exits by
+itself. The Mac can fall back to sleep then.
 
-The call is `caffeinate -i -t 90 &` launched through `/bin/sh` — the `&`
-makes it fire-and-forget so the Gleam caller does not block waiting for
-it to finish, and `-t 90` means it exits cleanly after 90 seconds with
+The call is `caffeinate -i -d -u -t 180 &` launched through `/bin/sh` — the
+`&` makes it fire-and-forget so the Gleam caller does not block waiting
+for it to finish, and `-t 180` means it exits cleanly after 180 seconds with
 no PID tracking or manual kill needed.
+
+`-u` is the flag that matters most here, and the reason for it is not
+obvious. `pmset schedule wake` wakes the CPU but leaves the display dark.
+`-d` only *prevents* future sleep; it cannot bring back a display that has
+already gone dark. `-u` declares user activity, which does turn the display
+on, speaker-enables the ringback tone, and ensures the window that `open -a`
+raises is one the user can actually see. Without `-u` the whole sequence can
+run headless: the alarm sounds into a dark screen and the window appears
+behind a sleeping display.
+
+180 seconds is sized to cover the work that follows a wake rather than the
+shape of the day: the login poll can spend up to 120 seconds waiting for a
+password, and six alarm rings take about 45 more (a 2.2 second tone plus a
+5 second gap each). Holding the assertion any longer than that would start
+to cost battery and heat for no benefit.
+
+If the assertion cannot be taken, `showup` warns and carries on. The alarm
+and the window matter more than the assertion, so a missing `caffeinate` is
+never a reason to skip a wake.
 
 ### When the assertion is useful versus when it is redundant
 

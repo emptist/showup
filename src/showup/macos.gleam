@@ -2,7 +2,9 @@ import child_process
 import child_process/stdio
 import gleam/int
 import gleam/list
+import gleam/result
 import gleam/string
+import gleam/time/duration.{type Duration}
 
 /// Calls a local Erlang BIF directly without writing any `.erl`.
 /// `calendar:local_time/0` returns `{{Year, Month, Day}, {Hour, Minute, Second}}`
@@ -143,16 +145,23 @@ pub fn idle_seconds() -> Int {
 /// Whether the user is currently at their desktop (not on the login
 /// window). True when we can read a valid console UID AND scutil reports
 /// LoginDoneKey = TRUE. Returns False while the login window is showing.
+///
+/// One scutil call answers both questions — the UID and the login flag are
+/// in the same output — so this is a single query rather than two. That
+/// matters because the login poll calls it once a second for up to two
+/// minutes, and each query spawns a shell as well as scutil.
 pub fn at_desktop() -> Bool {
-  case console_uid() {
-    Ok(_) ->
-      case scutil_query() {
-        Ok(output) -> string.contains(output, "kCGSessionLoginDoneKey : TRUE")
-        Error(_) -> True
+  case scutil_query() {
+    Ok(output) ->
+      case parse_uid(output) {
+        Ok(_) -> string.contains(output, login_done_key)
+        Error(_) -> False
       }
-    Error(_) -> False
+    Error(_) -> True
   }
 }
+
+const login_done_key: String = "kCGSessionLoginDoneKey : TRUE"
 
 /// Reads the idle time out of an `ioreg` report, which gives it in
 /// nanoseconds as `"HIDIdleTime" = 12624548166`.
@@ -193,6 +202,12 @@ pub fn play(sound: String) -> Result(Nil, String) {
 /// tracking needed, no manual kill. Zero or more concurrent assertions
 /// are fine; macOS counts them independently.
 ///
+/// `&` alone is not enough. A backgrounded child keeps the stdout and
+/// stderr it inherited, and `exec` reads those to end of stream, so the
+/// caller would block until caffeinate exited — the full timeout. Sending
+/// both to /dev/null closes the pipe immediately, which is what makes the
+/// backgrounding actually return.
+///
 /// The `-u` flag is critical here. `pmset schedule wake` wakes the CPU
 /// but leaves the display dark. `-d` only PREVENTS future sleep — it
 /// cannot turn a display that is already sleeping back on. `-u` declares
@@ -200,7 +215,10 @@ pub fn play(sound: String) -> Result(Nil, String) {
 /// ringback tone, and ensures `open -a` surfaces an app the user can
 /// actually see. Without `-u`, the show + alarm run headless.
 pub fn keep_awake(seconds: Int) -> Result(Nil, String) {
-  let cmd = "/usr/bin/caffeinate -i -d -u -t " <> int.to_string(seconds) <> " &"
+  let cmd =
+    "/usr/bin/caffeinate -i -d -u -t "
+    <> int.to_string(seconds)
+    <> " >/dev/null 2>&1 &"
   case exec("/bin/sh", ["-c", cmd]) {
     Ok(_) -> Ok(Nil)
     Error(reason) -> Error(reason)
@@ -219,34 +237,169 @@ pub fn schedule_wake(datetime: String) -> Result(Nil, String) {
   }
 }
 
-/// Removes any previously scheduled one-shot wake events we set.
+/// What the machine was doing while showup was waiting for the time to come.
 ///
-/// Before setting a new wake, we cancel all old ones so a stale schedule
-/// does not accidentally wake the Mac at the wrong time. Uses `pmset schedule
-/// cancelall wake`, which removes ALL pending one-shot wake events including
-/// those set by other processes. `cancelall` is required because `cancel`
-/// alone needs the exact datetime of the event to cancel.
-pub fn cancel_wake() -> Result(Nil, String) {
-  case exec("/usr/bin/pmset", ["schedule", "cancelall", "wake"]) {
-    Ok(_) -> Ok(Nil)
-    Error(reason) -> Error(reason)
+/// The timer expiring does not say whether the Mac spent that time awake
+/// or asleep, because the clock reads the same either way. Only the power
+/// log can tell the two apart, so we ask it.
+pub type Rest {
+  /// The Mac was up and running for the whole wait. Someone is very likely
+  /// sitting at it, so there is nobody to wake and nothing to wait for.
+  Awake
+  /// The Mac was asleep, and the wake that released us is the one we asked
+  /// the kernel for. Someone has to be woken, and may still have to log in.
+  Slept
+  /// The log could not be read. Take the least intrusive reading and just
+  /// surface the app, rather than making a noise we cannot justify.
+  Unknown
+}
+
+/// Asks the power log what happened while we were waiting.
+///
+/// Costs about four seconds, so it is asked once per wake and never on the
+/// path that has to be fast.
+pub fn rest(now: Duration) -> Rest {
+  case exec("/bin/sh", ["-c", rest_query]) {
+    Ok(log) -> parse_rest(log, now)
+    Error(_) -> Unknown
+  }
+}
+
+/// `pmset -g log` prints several megabytes of history, so the shell narrows
+/// it to the two lines that matter before we ever see it. `tail` bounds it
+/// again. The alternative — shipping megabytes into the VM to find the last
+/// line — is far more work for no extra information.
+const rest_query: String =
+  "/usr/bin/pmset -g log | /usr/bin/grep -E 'Entering Sleep state|Wake from' | /usr/bin/tail -20"
+
+/// Reads `rest` out of filtered `pmset -g log` output.
+///
+/// The line we want is the last one, and it answers the question only if it
+/// is the wake that just released us. A `Wake` line from this morning means
+/// nothing when the timer expires tonight, so recency is part of the test
+/// rather than an afterthought: `pmset` records how long each wake took, and
+/// it is routinely a fraction of a second, so the wake that resumes us is
+/// within a minute or so of the clock reading we were handed.
+///
+/// A `DarkWake` is the machine coming up for maintenance with the screen
+/// still off. It is not a wake we asked for, and the user cannot see
+/// anything during it, so it counts as `Awake` — software that rings at
+/// nobody into a dark screen helps no one.
+pub fn parse_rest(log: String, now: Duration) -> Rest {
+  let lines =
+    log
+    |> string.split(on: "\n")
+    |> list.filter(fn(line) {
+      case event_of(line) {
+        Ok("Sleep") | Ok("Wake") | Ok("DarkWake") -> True
+        _ -> False
+      }
+    })
+  case list.last(lines) {
+    Error(Nil) -> Unknown
+    Ok(line) -> classify(line, now)
+  }
+}
+
+/// The event name sits in a fixed column, after the date, the clock and the
+/// timezone: `... +0800 Wake   \tWake from Deep Idle ...`.
+fn event_of(line: String) -> Result(String, Nil) {
+  line |> words |> list.drop(3) |> list.first
+}
+
+fn timestamp_of(line: String) -> Result(Int, Nil) {
+  case words(line) {
+    [_, clock, ..] ->
+      case parse_clock(clock) {
+        Ok(#(hour, minute, second)) -> Ok(hour * 3600 + minute * 60 + second)
+        Error(_) -> Error(Nil)
+      }
+    _ -> Error(Nil)
+  }
+}
+
+/// Splits on whitespace of either kind. `pmset` pads its columns with runs
+/// of spaces and then a tab, so both have to go and the gaps have to go
+/// with them.
+fn words(line: String) -> List(String) {
+  line
+  |> string.replace(each: "\t", with: " ")
+  |> string.split(on: " ")
+  |> list.filter(fn(part) { part != "" })
+}
+
+fn classify(line: String, now: Duration) -> Rest {
+  case event_of(line) {
+    Ok("Wake") ->
+      case timestamp_of(line) {
+        Error(_) -> Unknown
+        Ok(at) -> {
+          // Measured round the clock rather than by subtraction, so a wake
+          // just before midnight and a clock reading just after it are two
+          // seconds apart rather than nearly a day.
+          let difference = whole_seconds(now) - at
+          let gap = case difference < 0 {
+            True -> difference + 86_400
+            False -> difference
+          }
+          case gap >= 0 && gap <= just_woke_seconds {
+            True -> Slept
+            False -> Awake
+          }
+        }
+      }
+    Ok(_) -> Awake
+    Error(_) -> Unknown
+  }
+}
+
+/// How long after the recorded wake the clock may read and still count as
+/// the same wake. Generous next to the fractions of a second `pmset`
+/// reports for a wake, tight enough that last night's wake can never look
+/// like tonight's.
+const just_woke_seconds: Int = 60
+
+fn whole_seconds(period: Duration) -> Int {
+  let #(seconds, _nanoseconds) = duration.to_seconds_and_nanoseconds(period)
+  seconds
+}
+
+/// `21:18:00` as (hour, minute, second).
+fn parse_clock(clock: String) -> Result(#(Int, Int, Int), Nil) {
+  case string.split(clock, on: ":") {
+    [hour, minute, second] ->
+      result.all([int.parse(hour), int.parse(minute), int.parse(second)])
+      |> result.map(fn(parts) {
+        case parts {
+          [h, m, s] -> #(h, m, s)
+          _ -> #(0, 0, 0)
+        }
+      })
+      |> result.map_error(fn(_) { Nil })
+    _ -> Error(Nil)
   }
 }
 
 /// Builds the `MM/DD/YYYY HH:MM:SS` string pmset expects for a wake that is
-/// `delay_seconds` from now, targeting a specific hour and minute on that day.
+/// `seconds_from_now` seconds away.
 ///
-/// Reads today's date via Erlang's `calendar:local_time/0`, then advances by
-/// 1 day if the target time has already passed today.
-pub fn pmset_datetime(hour: Int, minute: Int, delay_seconds: Int) -> String {
-  let #(#(year, month, day), _) = local_time()
-  let target_hour = hour
-  let target_minute = minute
-  let target_second = 0
-  let total_day_seconds = 86_400
-  let days_ahead = delay_seconds / total_day_seconds
+/// Computed from the current wall clock rather than from the hour and minute
+/// of the wake itself, because the wake we ask for is no longer the time the
+/// user asked for — it is that time less the lead window. Deriving it from
+/// the target time of day also used to be wrong across midnight: a 00:30
+/// wake found at 23:50 has forty minutes to run but lands on today's 00:30,
+/// which is already behind us.
+pub fn pmset_datetime(seconds_from_now: Int) -> String {
+  let #(#(year, month, day), #(hour, minute, second)) = local_time()
+  let seconds_today = hour * 3600 + minute * 60 + second
+  let target = seconds_today + seconds_from_now
+  let #(days_ahead, time_of_day) = case target >= 86_400 {
+    True -> #(1, target - 86_400)
+    False -> #(0, target)
+  }
   let #(final_year, final_month, final_day) =
     advance_date(year, month, day, days_ahead)
+  let #(final_hour, final_minute, final_second) = split_clock(time_of_day)
   string.join(
     [
       pad(final_month),
@@ -255,14 +408,19 @@ pub fn pmset_datetime(hour: Int, minute: Int, delay_seconds: Int) -> String {
       "/",
       int.to_string(final_year),
       " ",
-      pad(target_hour),
+      pad(final_hour),
       ":",
-      pad(target_minute),
+      pad(final_minute),
       ":",
-      pad(target_second),
+      pad(final_second),
     ],
     with: "",
   )
+}
+
+/// Seconds since midnight back into an hour, minute and second.
+fn split_clock(seconds: Int) -> #(Int, Int, Int) {
+  #(seconds / 3600, seconds / 60 % 60, seconds % 60)
 }
 
 /// Advances a Gregorian date by `days` days. For our use case `days` is

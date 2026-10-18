@@ -43,13 +43,41 @@ fn effects_alarming(
   showing: fn(String) -> macos.Outcome,
   alarming: fn() -> alarm.Outcome,
 ) -> scheduler.Effects {
+  effects_with_assertion(now, showing, alarming, fn(_) { Ok(Nil) })
+}
+
+fn effects_with_assertion(
+  now: Duration,
+  showing: fn(String) -> macos.Outcome,
+  alarming: fn() -> alarm.Outcome,
+  asserting: fn(Int) -> Result(Nil, String),
+) -> scheduler.Effects {
   scheduler.Effects(
     now: fn() { now },
     sleep: fn(_) { Nil },
     schedule_wake: fn(_) { Ok(Nil) },
-    cancel_wake: fn() { Ok(Nil) },
+    keep_awake: asserting,
+    rest: fn() { macos.Awake },
     show: showing,
     alarm: alarming,
+    at_desktop: fn() { True },
+    log: fn(_) { Nil },
+    warn: fn(_) { Nil },
+  )
+}
+
+fn effects_resting(
+  rest: macos.Rest,
+  showing: fn(String) -> macos.Outcome,
+) -> scheduler.Effects {
+  scheduler.Effects(
+    now: fn() { nine_o_clock() },
+    sleep: fn(_) { Nil },
+    schedule_wake: fn(_) { Ok(Nil) },
+    keep_awake: fn(_) { Ok(Nil) },
+    rest: fn() { rest },
+    show: showing,
+    alarm: fn() { alarm.Awake },
     at_desktop: fn() { True },
     log: fn(_) { Nil },
     warn: fn(_) { Nil },
@@ -72,7 +100,6 @@ pub fn waits_then_surfaces_the_app_test() {
   |> should.equal(scheduler.Surfaced(
     wake: wake_at(12, 0, 3),
     showed: macos.Launched,
-    rung: alarm.Awake,
   ))
 }
 
@@ -93,7 +120,6 @@ pub fn passes_the_app_name_to_the_platform_test() {
   |> should.equal(scheduler.Surfaced(
     wake: wake_at(12, 0, 3),
     showed: macos.Surfaced,
-    rung: alarm.Awake,
   ))
 }
 
@@ -111,7 +137,6 @@ pub fn reports_a_failure_without_stopping_test() {
   |> should.equal(scheduler.Surfaced(
     wake: wake_at(12, 0, 3),
     showed: macos.Failed(reason: "Unable to find application"),
-    rung: alarm.Awake,
   ))
 }
 
@@ -182,7 +207,6 @@ pub fn rings_after_surfacing_the_app_test() {
   |> should.equal(scheduler.Surfaced(
     wake: wake_at(12, 0, 3),
     showed: macos.Surfaced,
-    rung: alarm.Awake,
   ))
 }
 
@@ -205,6 +229,119 @@ pub fn rings_even_for_an_app_it_could_not_show_test() {
   |> should.equal(scheduler.Surfaced(
     wake: wake_at(12, 0, 3),
     showed: macos.Failed(reason: "no such app"),
-    rung: alarm.Awake,
   ))
+}
+
+pub fn still_shows_the_app_when_the_power_assertion_fails_test() {
+  // caffeinate is insurance, not a prerequisite. If it cannot be taken the
+  // alarm and the window still matter, so we warn and carry on rather than
+  // skipping the wake.
+  let result =
+    scheduler.step(
+      "Safari",
+      [at(12, 0)],
+      effects_with_assertion(
+        nine_o_clock(),
+        fn(_) { macos.Launched },
+        fn() { alarm.Awake },
+        fn(_) { Error("caffeinate not found") },
+      ),
+      from: nine_o_clock(),
+    )
+  result
+  |> should.equal(scheduler.Surfaced(
+    wake: wake_at(12, 0, 3),
+    showed: macos.Launched,
+  ))
+}
+
+/// A machine that never went down needs only the window.
+pub fn an_awake_machine_only_needs_the_window_test() {
+  scheduler.plan_for(macos.Awake)
+  |> should.equal(scheduler.JustTheWindow)
+}
+
+/// A machine we had to wake needs a person woken first. This is the fork
+/// between the two programs, so it is pinned down directly.
+pub fn a_sleeping_machine_wakes_the_person_first_test() {
+  scheduler.plan_for(macos.Slept)
+  |> should.equal(scheduler.RouseThePersonThenTheWindow)
+}
+
+/// Not knowing is treated as not knowing: the least intrusive reading, so
+/// no noise is made on a guess.
+pub fn an_unknown_rest_only_needs_the_window_test() {
+  scheduler.plan_for(macos.Unknown)
+  |> should.equal(scheduler.JustTheWindow)
+}
+
+pub fn asks_the_kernel_to_wake_two_minutes_early_test() {
+  scheduler.lead_split(3 * 3600, 300) |> should.equal(#(3 * 3600 - 300, 300))
+}
+
+pub fn leaves_a_wake_with_no_lead_window_whole_test() {
+  // Forty seconds away is inside the lead window already, so there is no
+  // early wake to ask for and nothing to hold back.
+  scheduler.lead_split(40, 300) |> should.equal(#(40, 0))
+}
+
+pub fn an_exact_lead_length_wake_is_all_lead_test() {
+  scheduler.lead_split(300, 300) |> should.equal(#(0, 300))
+}
+
+pub fn surfaces_the_app_when_the_machine_was_asleep_test() {
+  let result =
+    scheduler.step(
+      "Safari",
+      [at(12, 0)],
+      effects_resting(macos.Slept, fn(_) { macos.Surfaced }),
+      from: nine_o_clock(),
+    )
+  result
+  |> should.equal(scheduler.Surfaced(
+    wake: wake_at(12, 0, 3),
+    showed: macos.Surfaced,
+  ))
+}
+
+pub fn surfaces_the_app_when_the_machine_was_awake_test() {
+  let result =
+    scheduler.step(
+      "Safari",
+      [at(12, 0)],
+      effects_resting(macos.Awake, fn(_) { macos.Surfaced }),
+      from: nine_o_clock(),
+    )
+  result
+  |> should.equal(scheduler.Surfaced(
+    wake: wake_at(12, 0, 3),
+    showed: macos.Surfaced,
+  ))
+}
+
+pub fn a_morning_wake_gets_a_minutes_lead_test() {
+  scheduler.lead_for(9) |> should.equal(60)
+}
+
+pub fn an_afternoon_wake_gets_a_minutes_lead_test() {
+  scheduler.lead_for(16) |> should.equal(60)
+}
+
+pub fn an_evening_wake_gets_five_minutes_test() {
+  scheduler.lead_for(22) |> should.equal(300)
+}
+
+pub fn a_small_hours_wake_gets_five_minutes_test() {
+  scheduler.lead_for(2) |> should.equal(300)
+}
+
+pub fn a_seven_o_clock_wake_is_treated_as_day_test() {
+  // The hour a person gets up is the hour the Mac has been up for hours too,
+  // so the night lead is no longer wanted.
+  scheduler.lead_for(7) |> should.equal(60)
+}
+
+pub fn a_ten_past_midnight_wake_gets_five_minutes_test() {
+  // 00:10 the next day, so this is the small hours and not the evening.
+  scheduler.lead_for(0) |> should.equal(300)
 }

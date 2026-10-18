@@ -1,4 +1,5 @@
 import gleam/erlang/process
+import gleam/option
 import gleam/time/duration.{type Duration}
 import showup/macos
 
@@ -11,13 +12,12 @@ pub const ringback_tone: String =
 /// How hard `showup` tries to wake someone up.
 pub type Options {
   Options(
-    /// Ring only if the keyboard and mouse have been untouched for at least
-    /// this long.
-    idle_after: Duration,
     /// How long to wait after each ring before starting the next one.
     between: Duration,
-    /// How many rings to play before giving up on this wake.
-    give_up_after: Int,
+    /// A cap on the number of rings, or `option.None` to ring until a hand reaches
+    /// the keyboard. Production uses `option.None`; the cap exists so the loop can
+    /// be exercised by tests without one of them ringing forever.
+    give_up_after: option.Option(Int),
   )
 }
 
@@ -42,7 +42,13 @@ pub type Effects {
   )
 }
 
-/// The alarm as it behaves by default: quiet only when someone is there.
+/// Rings until the keyboard or mouse is touched.
+///
+/// option.None gives up on its own. The whole point is to reach someone who is
+/// asleep, and a person who has not moved for the first six rings has not
+/// been reached yet — a ring that stops is a ring that failed. It runs in
+/// its own process, so nothing else waits on it, and the only thing that
+/// stops it is a hand on the keyboard.
 pub fn ringing() -> fn() -> Outcome {
   fn() { ring(default_options(), live()) }
 }
@@ -58,14 +64,10 @@ pub fn live() -> Effects {
 }
 
 pub fn default_options() -> Options {
-  Options(
-    idle_after: duration.minutes(2),
-    between: duration.seconds(5),
-    give_up_after: 6,
-  )
+  Options(between: duration.seconds(5), give_up_after: option.None)
 }
 
-/// Rings until the keyboard or mouse is touched, or until patience runs out.
+/// Rings until the keyboard or mouse is touched.
 ///
 /// Always plays the ringback tone — we do not skip ringing even if the system
 /// appears to be active, because the whole point is to make sure the user
@@ -83,6 +85,25 @@ pub fn ring(options: Options, effects: Effects) -> Outcome {
   keep_ringing(options, effects, 1, baseline)
 }
 
+/// Whether the ringing has done its job.
+///
+/// Either a hand reached the keyboard, or a cap was set and has been reached.
+/// `option.None` is the production answer: a ring that stops on its own is a ring
+/// that failed to wake anyone.
+fn answered(
+  idle_now: Int,
+  baseline: Int,
+  rings: Int,
+  options: Options,
+) -> Bool {
+  let touched = idle_now < baseline
+  let capped = case options.give_up_after {
+    option.None -> False
+    option.Some(limit) -> rings >= limit
+  }
+  touched || capped
+}
+
 fn keep_ringing(
   options: Options,
   effects: Effects,
@@ -94,16 +115,9 @@ fn keep_ringing(
     Ok(Nil) -> {
       effects.sleep(options.between)
       let idle_now = effects.idle_seconds()
-      let answered = idle_now < baseline
-      let out_of_patience = rings >= options.give_up_after
-      case answered || out_of_patience {
+      case answered(idle_now, baseline, rings, options) {
         True -> Rung(rings: rings)
-        False -> keep_ringing(
-          options,
-          effects,
-          rings + 1,
-          baseline,
-        )
+        False -> keep_ringing(options, effects, rings + 1, baseline)
       }
     }
   }
