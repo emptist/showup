@@ -279,6 +279,33 @@ fn whole_seconds(period: Duration) -> Int {
   seconds
 }
 
+/// Where showup records what it did and when.
+///
+/// Without this there is no way to answer "when did the alarm start" after
+/// the fact: the program's own output goes to a terminal that is usually
+/// closed, and nothing else on the machine knows what it decided. Every
+/// question about a wake that has already happened needs this file.
+pub const log_path: String = "/tmp/showup.log"
+
+/// Appends one line to the log.
+///
+/// The line is passed as an argument rather than interpolated into the
+/// shell, so an app name containing quotes cannot turn into a command, and
+/// appended rather than written so each line survives the process dying.
+pub fn append_log(line: String) -> Result(Nil, Nil) {
+  let written =
+    exec("/bin/sh", [
+      "-c",
+      "printf '%s\\n' \"$1\" >> " <> log_path,
+      "showup",
+      line,
+    ])
+  case written {
+    Ok(_) -> Ok(Nil)
+    Error(_) -> Error(Nil)
+  }
+}
+
 /// Holds three assertions for `seconds` seconds:
 ///   - PreventUserIdleSystemSleep    (-i) keep CPU awake
 ///   - PreventDisplaySleep            (-d) keep display from going back to sleep

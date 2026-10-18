@@ -57,9 +57,39 @@ pub fn live(alarm: fn() -> alarm.Outcome) -> Effects {
     show: macos.show,
     alarm: alarm,
     at_desktop: macos.at_desktop,
-    log: fn(message) { io.println("showup: " <> message) },
-    warn: fn(message) { io.println_error("showup: " <> message) },
+    log: fn(message) {
+      io.println("showup: " <> message)
+      record(message)
+    },
+    warn: fn(message) {
+      io.println_error("showup: " <> message)
+      record("WARNING " <> message)
+    },
   )
+}
+
+/// Writes one line to the log file, stamped with the time.
+///
+/// Best effort: a log that cannot be written is not a reason to stop
+/// surfacing apps, so the result is discarded.
+fn record(message: String) -> Nil {
+  let #(seconds, _) = duration.to_seconds_and_nanoseconds(now())
+  let line = clock(seconds) <> "  " <> message
+  let _ = macos.append_log(line)
+  Nil
+}
+
+/// Seconds since midnight as `HH:MM:SS`.
+fn clock(seconds: Int) -> String {
+  pad(seconds / 3600)
+  <> ":"
+  <> pad(seconds / 60 % 60)
+  <> ":"
+  <> pad(seconds % 60)
+}
+
+fn pad(value: Int) -> String {
+  string.pad_start(int.to_string(value), to: 2, with: "0")
 }
 
 /// Surfaces `app` at every time, for as long as the program runs.
