@@ -64,13 +64,23 @@ pub fn show(app: String) -> Outcome {
   }
 }
 
+/// Runs `echo "show State:/Users/ConsoleUser" | scutil`.
+/// scutil reads commands from stdin, not from argv — passing them as args
+/// causes it to hang waiting for stdin input forever.
+fn scutil_query() -> Result(String, String) {
+  exec("/bin/sh", [
+    "-c",
+    "echo 'show State:/Users/ConsoleUser' | /usr/sbin/scutil",
+  ])
+}
+
 /// Extracts the ConsoleUser's UID from scutil. Returns the UID of the user
 /// currently holding the GUI session, or an error if we cannot determine it.
 ///
 /// We need this because showup runs as root and cannot directly open apps
 /// in the user's GUI session — we must delegate to `launchctl asuser <uid>`.
 pub fn console_uid() -> Result(Int, String) {
-  case exec("/usr/sbin/scutil", ["show", "State:/Users/ConsoleUser"]) {
+  case scutil_query() {
     Ok(output) -> parse_uid(output)
     Error(reason) -> Error(reason)
   }
@@ -128,12 +138,10 @@ pub fn idle_seconds() -> Int {
 pub fn at_desktop() -> Bool {
   case console_uid() {
     Ok(_) ->
-      case exec("/usr/sbin/scutil", ["show", "State:/Users/ConsoleUser"]) {
+      case scutil_query() {
         Ok(output) -> string.contains(output, "kCGSessionLoginDoneKey : TRUE")
-        // If scutil fails after we already got a UID, trust the UID.
         Error(_) -> True
       }
-    // No console user at all (UID 0 or not found) → definitely not at desktop.
     Error(_) -> False
   }
 }
