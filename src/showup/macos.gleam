@@ -1,3 +1,5 @@
+import child_process
+import child_process/stdio
 import gleam/int
 import gleam/string
 
@@ -11,8 +13,16 @@ pub type Outcome {
   Failed(reason: String)
 }
 
-@external(erlang, "showup_erl", "run")
-fn exec(executable: String, arguments: List(String)) -> Result(String, String)
+fn exec(executable: String, args: List(String)) -> Result(String, String) {
+  case
+    child_process.from_file(executable)
+    |> child_process.args(args)
+    |> child_process.run(stdio.capture(True))
+  {
+    Ok(child_process.Output(output: output, ..)) -> Ok(output)
+    Error(err) -> Error(child_process.describe_start_error(err))
+  }
+}
 
 /// Brings `app` to the foreground, launching it when it is not running.
 ///

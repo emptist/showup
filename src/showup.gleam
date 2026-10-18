@@ -1,3 +1,4 @@
+import argv
 import gleam/io
 import gleam/list
 import showup/alarm
@@ -11,14 +12,11 @@ const preview_count: Int = 5
 /// Exit status used when the command line could not be understood.
 const usage_status: Int = 2
 
-@external(erlang, "showup_erl", "arguments")
-fn arguments() -> List(String)
-
-@external(erlang, "showup_erl", "halt")
+@external(erlang, "erlang", "halt")
 fn halt(status: Int) -> Nil
 
 pub fn main() -> Nil {
-  case cli.parse(arguments()) {
+  case cli.parse(argv.load().arguments) {
     Error(error) -> {
       io.println_error("showup: " <> cli.error_message(error))
       io.println_error("")
