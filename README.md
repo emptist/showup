@@ -6,12 +6,16 @@ for it among your windows. If the application is not running yet, it is
 launched for you.
 
 ```sh
-showup -a Safari -t 8:00,12:00,16:00,20:00
+sudo showup -a Safari -t 8:00,12:00,16:00,20:00
 ```
 
-`showup` works out when the next of your times is, sleeps until then, brings
-the application to the front, and rings if nobody is actually at the machine. It
-then does the same again for the next day, and the next, until you stop it with
+The `sudo` is not optional. `showup` asks the power-management system to wake
+the Mac out of sleep, and only root may do that.
+
+`showup` works out when the next of your times is, asks the kernel to wake the
+Mac a little before it, and then brings the application to the front. If the
+Mac was asleep it also rings, and waits for you to log in if it has to. It then
+does the same again for the next day, and the next, until you stop it with
 Ctrl-C. A time that has already passed today waits for tomorrow, so it is safe
 to leave running.
 
@@ -40,9 +44,13 @@ showup -a <app> -t <times> [-n] [-q]
                         8:00,12:00,16:00,20:00,24:00. A bare hour such as
                         8 means 8:00.
   -n, --dry-run         Print the next few wake times and exit.
-  -q, --no-ring         Never make a sound, even when nobody is there.
+  -q, --no-ring         Never make a sound.
   -h, --help            Show the full message.
 ```
+
+`--no-ring` is worth understanding before you use it. By default `showup`
+only ever rings when it had to wake a sleeping Mac — never when the machine was
+already up, where you are assumed to be present and looking.
 
 Both `--flag value` and `--flag=value` are accepted, repeated `-t` flags are
 combined, and times are sorted and deduplicated.
@@ -128,9 +136,9 @@ caf or m4a rather than an mp3.
 ## While the Mac is asleep
 
 `showup` handles Mac sleep correctly. The design is: **let the Mac sleep
-naturally, start a brief power assertion right before surfacing, then let
-the Mac sleep again**. This section explains why this works and what the
-limits are.
+naturally, ask the kernel to wake it a little before the time, bring the
+machine and its owner back, then let it sleep again**. This section explains
+why this works and what the limits are.
 
 ### What happens when the Mac sleeps
 
@@ -181,13 +189,19 @@ behind a sleeping display.
 
 180 seconds is sized to cover the work that follows a wake rather than the
 shape of the day: the login poll can spend up to 120 seconds waiting for a
-password, and six alarm rings take about 45 more (a 2.2 second tone plus a
-5 second gap each). Holding the assertion any longer than that would start
-to cost battery and heat for no benefit.
+password, and the ring needs a few more to be heard. Holding the assertion any
+longer than that would start to cost battery and heat for no benefit.
 
 If the assertion cannot be taken, `showup` warns and carries on. The alarm
 and the window matter more than the assertion, so a missing `caffeinate` is
 never a reason to skip a wake.
+
+> **Not yet proven.** That `-u` really does bring the display back is the one
+> claim in this README that has not been measured on this machine.
+> `IODisplayWranglerState` — the property that says whether the screen is lit —
+> is not readable without root, and until it is, `showup` logs "brought X to
+> the foreground" without knowing whether anyone can see it. Everything else
+> here was checked against real output.
 
 ### When the assertion is useful versus when it is redundant
 
@@ -255,15 +269,23 @@ replaces the 5-minute gap of the test; the mechanism is the same.
    `caffeinate -i` continuously would defeat the whole point of letting
    the Mac sleep and costs battery, heat, and wear.
 
-3. **`caffeinate -i -t N &` through `/bin/sh` is the correct pattern.**
+3. **`caffeinate -i -d -u -t N` through `/bin/sh` is the correct pattern.**
    `caffeinate -i -w <pid>` ties the assertion to a specific process and
    requires correct ownership; `caffeinate -i -t N` + `&` in a shell is
    simpler — the timeout is a hard stop, and orphaned caffeinate processes
    from a crashed parent will exit after the same timeout anyway.
 
+   The `&` is not enough on its own. A backgrounded child keeps the stdout and
+   stderr it inherited, and `child_process.run` reads those to end of stream,
+   so without `>/dev/null 2>&1` the caller blocks until caffeinate exits — the
+   full timeout. That one was invisible to the tests and only showed up in a
+   live run.
+
 4. **The `Effects` type is the boundary.** If you port `showup` to another
-   runtime or another OS, `keep_awake` is the only hook you need. The
-   scheduler core (and its tests) never call macOS APIs directly.
+   runtime or another OS, `keep_awake` and `rest` are the two hooks you need:
+   one takes the power assertion, the other reports what the machine was doing
+   while we waited. The scheduler core (and its tests) never call macOS APIs
+   directly.
 
 ## How it works
 
@@ -304,7 +326,7 @@ All interaction with the outside world goes through well-known Hex packages:
 | Package          | Used for                                    |
 | ---------------- | ------------------------------------------- |
 | `argv`           | Reading command line arguments              |
-| `child_process`  | Spawning `open -a`, `lsappinfo`, `ioreg`, `afplay`, `caffeinate` |
+| `child_process`  | Spawning `open -a`, `lsappinfo`, `ioreg`, `afplay`, `caffeinate`, `pmset`, `scutil` |
 | `gleam_time`     | Time-of-day and duration types              |
 | `gleam_erlang`   | `process.sleep`, Erlang VM bindings         |
 
@@ -328,7 +350,15 @@ require any `.erl` source file.
 | `showup/schedule.gleam`  | Times of day, and when the next wake is due                |
 | `showup/scheduler.gleam` | The loop, taking its clock and platform calls as arguments |
 | `showup/alarm.gleam`     | Ringing until the user is awake                            |
-| `showup/macos.gleam`     | `open -a`, `lsappinfo`, `ioreg`, `afplay`, and `caffeinate`|
+| `showup/macos.gleam`     | `open -a`, `lsappinfo`, `ioreg`, `afplay`, `caffeinate`, `pmset`, `scutil` |
+
+The parsers in `macos.gleam` are the fragile part and the part that has actually
+broken. `parse_uid` once searched for the substring `UID : ` in `scutil`
+output, which also matches the tail of `CGSSessionUniqueSessionUUID : ...`, so it
+failed on every real input and the app was never surfaced at all — while all 78
+tests passed, because every one of them supplied a fake. Anything that parses
+real command output here should be tested against verbatim real output, padding
+and tabs included, not only through `Effects`.
 
 `scheduler.live` is the only place the real system clock and macOS are wired in,
 so the rest of the program is pure and the loop is exercised in the tests with a
