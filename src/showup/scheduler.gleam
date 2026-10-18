@@ -153,8 +153,6 @@ pub fn step(
           )
         Ok(_) -> Nil
       }
-      effects.sleep(duration.seconds(ahead))
-
       // Did the machine go down while we waited? The clock cannot say, and
       // neither can its power log: the log is written by powerd, which has
       // not necessarily recorded our wake by the time we ask — and asking is
@@ -163,9 +161,12 @@ pub fn step(
       //
       // The keyboard idle counter does answer it. It keeps running only
       // while the machine is up, so it freezes across a sleep and resumes
-      // where it left off. Measured on a real wake: 5.97s before going
-      // down, 8.31s after coming back 353 seconds later. A machine awake
-      // throughout would have reached 359.
+      // where it left off. Measured on a real wake: 5.79s before going
+      // down, 8.09s after coming back 359 seconds later. A machine awake
+      // throughout would have reached 365.
+      //
+      // Both readings and the timing bracket the ONE wait below. Anything
+      // else measures a window the machine was awake for.
       let idle_before = effects.idle_seconds()
       let started = effects.now()
       effects.sleep(duration.seconds(ahead))
