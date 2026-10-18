@@ -9,6 +9,10 @@ import showup/macos
 pub const ringback_tone: String =
   "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/facetime/multiway_invitation.caf"
 
+/// How many refused playbacks are waited out before the sound is
+/// declared unplayable.
+const default_play_failures: Int = 3
+
 /// How hard `showup` tries to wake someone up.
 pub type Options {
   Options(
@@ -18,6 +22,16 @@ pub type Options {
     /// the keyboard. Production uses `option.None`; the cap exists so the loop can
     /// be exercised by tests without one of them ringing forever.
     give_up_after: option.Option(Int),
+    /// Consecutive refused playbacks to put up with before declaring the
+    /// sound unplayable.
+    ///
+    /// A machine that has just woken from deep sleep may not have its audio
+    /// stack up yet, so the first `afplay` can be refused for a reason that
+    /// has nothing to do with the sound file. Giving up on the first refusal
+    /// is how the alarm ends up silent on the one wake that needed it, so we
+    /// wait and try again. It still gives up eventually, or a genuinely
+    /// missing file would ring at nobody until showup is stopped.
+    play_failures: Int,
   )
 }
 
@@ -64,7 +78,11 @@ pub fn live() -> Effects {
 }
 
 pub fn default_options() -> Options {
-  Options(between: duration.seconds(5), give_up_after: option.None)
+  Options(
+    between: duration.seconds(5),
+    give_up_after: option.None,
+    play_failures: default_play_failures,
+  )
 }
 
 /// Rings until the keyboard or mouse is touched.
@@ -82,7 +100,7 @@ pub fn ring(options: Options, effects: Effects) -> Outcome {
   // must not short-circuit us. We only stop when idle drops below this
   // baseline — meaning NEW keyboard or mouse input arrived while we rang.
   let baseline = effects.idle_seconds()
-  keep_ringing(options, effects, 1, baseline)
+  keep_ringing(options, effects, 1, baseline, 0)
 }
 
 /// Whether the ringing has done its job.
@@ -109,17 +127,25 @@ fn keep_ringing(
   effects: Effects,
   rings: Int,
   baseline: Int,
+  failures: Int,
 ) -> Outcome {
   case effects.play(ringback_tone) {
-    Error(reason) -> Silent(reason: reason)
     Ok(Nil) -> {
       effects.sleep(options.between)
       let idle_now = effects.idle_seconds()
       case answered(idle_now, baseline, rings, options) {
         True -> Rung(rings: rings)
-        False -> keep_ringing(options, effects, rings + 1, baseline)
+        False -> keep_ringing(options, effects, rings + 1, baseline, 0)
       }
     }
+    Error(reason) ->
+      case failures + 1 >= options.play_failures {
+        True -> Silent(reason: reason)
+        False -> {
+          effects.sleep(options.between)
+          keep_ringing(options, effects, rings, baseline, failures + 1)
+        }
+      }
   }
 }
 

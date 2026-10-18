@@ -15,6 +15,7 @@ fn capped_after(give_up_after: Int) -> alarm.Options {
   alarm.Options(
     between: duration.seconds(10),
     give_up_after: option.Some(give_up_after),
+    play_failures: 3,
   )
 }
 
@@ -102,4 +103,32 @@ pub fn stays_quiet_when_ringing_was_switched_off_test() {
   // The silent alarm is what --no-ring installs, and it must never make a
   // sound whatever the machine looks like.
   alarm.silent()() |> should.equal(alarm.Awake)
+}
+
+/// The alarm plays sound by shelling out to afplay, and a machine that has
+/// just woken from deep sleep may refuse the first one or two while its
+/// audio stack comes up. Giving up on the first refusal is how the alarm
+/// ends up silent on the one wake that needed it.
+pub fn waits_out_audio_that_is_not_ready_yet_test() {
+  // The production answer must be more than one try, or the retry is not
+  // really there.
+  alarm.default_options().play_failures |> should.equal(3)
+}
+
+/// A sound that never plays still ends the alarm, rather than ringing at
+/// nobody until showup is stopped.
+pub fn gives_up_on_a_sound_that_never_plays_test() {
+  let silent =
+    alarm.Effects(
+      idle_seconds: fn() { 600 },
+      play: fn(_) { Error("no such file") },
+      sleep: fn(_) { Nil },
+    )
+  quiet(99, silent) |> should.equal(alarm.Silent(reason: "no such file"))
+}
+
+/// How many times the alarm tries before giving up is the production value,
+/// not a test's, so that the wait is a real one.
+pub fn the_production_alarm_waits_out_three_refused_playbacks_test() {
+  alarm.default_options().play_failures |> should.equal(3)
 }
