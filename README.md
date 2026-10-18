@@ -233,10 +233,30 @@ gleam export escript && install -m 0755 showup /usr/local/bin/showup
 ```
 
 Times of day and delays are `gleam_time`'s `TimeOfDay` and `Duration` rather
-than home grown types, and sleeping is `gleam_erlang`'s `process.sleep`. The
-one hand written Erlang module is down to the three things no core library
-does: run a program and capture its output, read the command line arguments,
-and exit with a status code.
+than home grown types, and sleeping is `gleam_erlang`'s `process.sleep`.
+
+All interaction with the outside world goes through well-known Hex packages:
+
+| Package          | Used for                                    |
+| ---------------- | ------------------------------------------- |
+| `argv`           | Reading command line arguments              |
+| `child_process`  | Spawning `open -a`, `lsappinfo`, `ioreg`, `afplay`, `caffeinate` |
+| `gleam_time`     | Time-of-day and duration types              |
+| `gleam_erlang`   | `process.sleep`, Erlang VM bindings         |
+
+There is **no handwritten Erlang** anywhere in this project. Everything the
+program needs — reading args, spawning processes, reading clock time — is
+provided by a community package. The only `@external` declaration is a one-line
+call to Erlang's built-in `erlang:halt/1` for clean exit, which does not
+require any `.erl` source file.
+
+> Why use community packages instead of writing Erlang FFI? Gleam's standard
+> library is deliberately small and excludes platform-specific functionality
+> such as process spawning and command-line argument parsing. A common mistake
+> when Gleam was newer was to hand-write a small Erlang module for these
+> tasks; the ecosystem has now matured and the packages above are the
+> recommended approach per the [Gleam official guide](https://gleam.run/writing-gleam/).
+> Try `packages.gleam.run` before reaching for a custom `@external`.
 
 | Module                   | Role                                                       |
 | ------------------------ | ---------------------------------------------------------- |
@@ -245,7 +265,6 @@ and exit with a status code.
 | `showup/scheduler.gleam` | The loop, taking its clock and platform calls as arguments |
 | `showup/alarm.gleam`     | Ringing until the user is awake                            |
 | `showup/macos.gleam`     | `open -a`, `lsappinfo`, `ioreg`, `afplay`, and `caffeinate`|
-| `src/showup_erl.erl`     | Run programs, read args, exit with a status code           |
 
 `scheduler.live` is the only place the real system clock and macOS are wired in,
 so the rest of the program is pure and the loop is exercised in the tests with a
