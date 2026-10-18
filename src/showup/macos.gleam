@@ -1,6 +1,7 @@
 import child_process
 import child_process/stdio
 import gleam/int
+import gleam/io
 import gleam/string
 
 /// Calls a local Erlang BIF directly without writing any `.erl`.
@@ -68,10 +69,25 @@ pub fn show(app: String) -> Outcome {
 /// scutil reads commands from stdin, not from argv — passing them as args
 /// causes it to hang waiting for stdin input forever.
 fn scutil_query() -> Result(String, String) {
-  exec("/bin/sh", [
-    "-c",
-    "echo 'show State:/Users/ConsoleUser' | /usr/sbin/scutil",
-  ])
+  case
+    exec("/bin/sh", [
+      "-c",
+      "echo 'show State:/Users/ConsoleUser' | /usr/sbin/scutil",
+    ])
+  {
+    Ok(output) -> {
+      io.println(
+        "[debug] scutil output ("
+        <> int.to_string(string.length(output))
+        <> " chars)",
+      )
+      Ok(output)
+    }
+    Error(reason) -> {
+      io.println_error("[debug] scutil failed: " <> reason)
+      Error(reason)
+    }
+  }
 }
 
 /// Extracts the ConsoleUser's UID from scutil. Returns the UID of the user

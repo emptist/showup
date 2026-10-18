@@ -182,7 +182,7 @@ pub fn rings_after_surfacing_the_app_test() {
   |> should.equal(scheduler.Surfaced(
     wake: wake_at(12, 0, 3),
     showed: macos.Surfaced,
-    rung: alarm.Rung(rings: 3),
+    rung: alarm.Awake,
   ))
 }
 
@@ -205,6 +205,6 @@ pub fn rings_even_for_an_app_it_could_not_show_test() {
   |> should.equal(scheduler.Surfaced(
     wake: wake_at(12, 0, 3),
     showed: macos.Failed(reason: "no such app"),
-    rung: alarm.Rung(rings: 3),
+    rung: alarm.Awake,
   ))
 }

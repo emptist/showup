@@ -132,34 +132,32 @@ pub fn step(
       }
       effects.sleep(wake.delay)
 
-      // We cannot tell if the Mac was sleeping from inside our own process
-      // — it would have been suspended too. pmset schedule wake above is
-      // our only defence: if the Mac slept, pmset woke it and let us run
-      // again. Either way, sleep() just returned, we ring the alarm.
-      let rung = effects.alarm()
-      case rung {
-        alarm.Awake -> effects.log("you were already awake, skipping alarm")
-        alarm.Rung(rings: rings) ->
-          effects.log(
-            "rang " <> int.to_string(rings) <> " times to be heard",
-          )
-        alarm.Silent(reason: reason) ->
-          effects.warn("could not ring: " <> reason)
-      }
+      // Ring in the background so we don't wait for it to stop before
+      // surfacing. The ring stops on user keypress (alarm's baseline
+      // detection), but we start checking desktop readiness immediately —
+      // if login finishes quickly we can show the window while the ring
+      // is still going, or if we're already at desktop we show right away.
+      let alarm_pid = process.spawn(fn() {
+        let rung = effects.alarm()
+        case rung {
+          alarm.Awake -> effects.log("you were already awake, skipping alarm")
+          alarm.Rung(rings: rings) ->
+            effects.log(
+              "rang " <> int.to_string(rings) <> " times to be heard",
+            )
+          alarm.Silent(reason: reason) ->
+            effects.warn("could not ring: " <> reason)
+        }
+      })
 
-      // Now the user has acknowledged the alarm (touched keyboard/mouse).
-      // They might be at the desktop or at the login window. We don't know
-      // which — it doesn't matter. Ensure we're at the desktop before
-      // surfacing: if we already are (scenario 1, or scenario 2 with
-      // autologin) this returns immediately; otherwise we poll until login
-      // finishes.
+      // Check desktop readiness immediately — don't wait for ring to stop.
       effects.log("checking if desktop is ready...")
       ensure_at_desktop(effects)
       effects.log("about to show " <> app)
       let showed = effects.show(app)
       report(app, showed, effects)
 
-      Surfaced(wake: wake, showed: showed, rung: rung)
+      Surfaced(wake: wake, showed: showed, rung: alarm.Awake)
     }
   }
 }
