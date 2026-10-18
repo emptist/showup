@@ -18,8 +18,8 @@ pub type Effects {
     sleep: fn(Duration) -> Nil,
     schedule_wake: fn(String) -> Result(Nil, String),
     keep_awake: fn(Int) -> Result(Nil, String),
-    /// What the machine was doing while we waited.
-    rest: fn() -> macos.Rest,
+    /// How long the keyboard and mouse have been untouched.
+    idle_seconds: fn() -> Int,
     show: fn(String) -> macos.Outcome,
     /// Rings until someone touches the keyboard or mouse.
     alarm: fn() -> alarm.Outcome,
@@ -48,7 +48,7 @@ pub fn live(alarm: fn() -> alarm.Outcome) -> Effects {
     sleep: sleep,
     schedule_wake: macos.schedule_wake,
     keep_awake: macos.keep_awake,
-    rest: fn() { macos.rest(now()) },
+    idle_seconds: macos.idle_seconds,
     show: macos.show,
     alarm: alarm,
     at_desktop: macos.at_desktop,
@@ -155,19 +155,33 @@ pub fn step(
       }
       effects.sleep(duration.seconds(ahead))
 
-      // The timer expiring says nothing about what the Mac did during the
-      // wait, so ask the power log. This is the fork between the two
-      // programs showup is made of: a machine that was already up needs
-      // only the window, and a machine we had to wake needs a person woken
-      // before a window is any use.
-      let rest = effects.rest()
-      describe_rest(rest, effects)
-      case plan_for(rest) {
-        RouseThePersonThenTheWindow -> {
+      // Did the machine go down while we waited? The clock cannot say, and
+      // neither can its power log: the log is written by powerd, which has
+      // not necessarily recorded our wake by the time we ask — and asking is
+      // the only moment anyone asks. That race is not fixable by waiting,
+      // because the very first question is the one that loses.
+      //
+      // The keyboard idle counter does answer it. It keeps running only
+      // while the machine is up, so it freezes across a sleep and resumes
+      // where it left off. Measured on a real wake: 5.97s before going
+      // down, 8.31s after coming back 353 seconds later. A machine awake
+      // throughout would have reached 359.
+      let idle_before = effects.idle_seconds()
+      let started = effects.now()
+      effects.sleep(duration.seconds(ahead))
+      let elapsed = seconds_between(started, effects.now())
+      let idle_after = effects.idle_seconds()
+
+      case slept_while(idle_before, idle_after, elapsed) {
+        True -> {
+          effects.log("the Mac was asleep, waking you up first")
           let spent = rouse(effects)
           sleep_remaining(remaining - spent, effects)
         }
-        JustTheWindow -> sleep_remaining(remaining, effects)
+        False -> {
+          effects.log("the Mac was awake throughout, nothing to wake")
+          sleep_remaining(remaining, effects)
+        }
       }
 
       let showed = surface(app, effects)
@@ -176,43 +190,29 @@ pub fn step(
   }
 }
 
-/// What has to happen before the window goes up.
+/// Whether the machine was suspended while we waited for `elapsed` seconds.
 ///
-/// This is the whole design: the two programs are different work, and which
-/// one runs is decided by what the machine was doing, not by the clock.
-pub type Plan {
-  /// The Mac never went down, so someone is very likely already at it. Raise
-  /// the window and stop — no sound, and no waiting for a login that is not
-  /// going to happen.
-  JustTheWindow
-  /// The Mac was asleep, or we could not tell, and this is the wake we asked
-  /// for. A person has to be woken, and may have to log in, before a window
-  /// is any use.
-  RouseThePersonThenTheWindow
-}
-
-/// Not knowing is treated as having slept, and that is a deliberate choice
-/// rather than a cautious one.
+/// The idle counter advances with wall clock on a running machine and stops
+/// dead across a sleep, so it either kept pace with the wait or it did not.
+/// Two readings and the length of the wait settle it.
 ///
-/// Surfacing a window to a machine nobody is looking at achieves nothing.
-/// The alarm is the only part of this program that can do anything at all
-/// when the user is asleep, so the two mistakes are not equally bad: a ring
-/// that stops itself is a few seconds of noise and a hand on the keyboard,
-/// while a ring that never starts means the whole wake was theatre. When the
-/// evidence is thin, the loud reading is the right one.
-pub fn plan_for(rest: macos.Rest) -> Plan {
-  case rest {
-    macos.Slept | macos.Unknown -> RouseThePersonThenTheWindow
-    macos.Awake -> JustTheWindow
+/// A counter that went *backwards* means input arrived, so the machine was
+/// up and someone was using it — that is not a sleep.
+pub fn slept_while(idle_before: Int, idle_after: Int, elapsed: Int) -> Bool {
+  let advanced = idle_after - idle_before
+  case advanced < 0 {
+    True -> False
+    False -> advanced * 2 < elapsed
   }
 }
 
-fn describe_rest(rest: macos.Rest, effects: Effects) -> Nil {
-  case rest {
-    macos.Slept -> effects.log("the Mac was asleep, waking you up first")
-    macos.Awake -> effects.log("the Mac was awake throughout, nothing to wake")
-    macos.Unknown ->
-      effects.warn("could not tell whether the Mac slept, waking you up anyway")
+/// Whole seconds from one clock reading to another, round the clock so a
+/// wait that crosses midnight is not read as a negative.
+fn seconds_between(from: Duration, to: Duration) -> Int {
+  let difference = whole_seconds(to) - whole_seconds(from)
+  case difference < 0 {
+    True -> difference + 86_400
+    False -> difference
   }
 }
 

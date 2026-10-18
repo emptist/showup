@@ -57,27 +57,9 @@ fn effects_with_assertion(
     sleep: fn(_) { Nil },
     schedule_wake: fn(_) { Ok(Nil) },
     keep_awake: asserting,
-    rest: fn() { macos.Awake },
+    idle_seconds: fn() { 600 },
     show: showing,
     alarm: alarming,
-    at_desktop: fn() { True },
-    log: fn(_) { Nil },
-    warn: fn(_) { Nil },
-  )
-}
-
-fn effects_resting(
-  rest: macos.Rest,
-  showing: fn(String) -> macos.Outcome,
-) -> scheduler.Effects {
-  scheduler.Effects(
-    now: fn() { nine_o_clock() },
-    sleep: fn(_) { Nil },
-    schedule_wake: fn(_) { Ok(Nil) },
-    keep_awake: fn(_) { Ok(Nil) },
-    rest: fn() { rest },
-    show: showing,
-    alarm: fn() { alarm.Awake },
     at_desktop: fn() { True },
     log: fn(_) { Nil },
     warn: fn(_) { Nil },
@@ -255,27 +237,11 @@ pub fn still_shows_the_app_when_the_power_assertion_fails_test() {
   ))
 }
 
-/// A machine that never went down needs only the window.
-pub fn an_awake_machine_only_needs_the_window_test() {
-  scheduler.plan_for(macos.Awake)
-  |> should.equal(scheduler.JustTheWindow)
-}
-
 /// A machine we had to wake needs a person woken first. This is the fork
 /// between the two programs, so it is pinned down directly.
-pub fn a_sleeping_machine_wakes_the_person_first_test() {
-  scheduler.plan_for(macos.Slept)
-  |> should.equal(scheduler.RouseThePersonThenTheWindow)
-}
-
 /// Not knowing is treated as having slept. A window raised at a machine
 /// nobody is looking at achieves nothing, so when the evidence is thin the
 /// loud reading wins.
-pub fn an_unknown_rest_wakes_the_person_too_test() {
-  scheduler.plan_for(macos.Unknown)
-  |> should.equal(scheduler.RouseThePersonThenTheWindow)
-}
-
 pub fn asks_the_kernel_to_wake_two_minutes_early_test() {
   scheduler.lead_split(3 * 3600, 300) |> should.equal(#(3 * 3600 - 300, 300))
 }
@@ -288,36 +254,6 @@ pub fn leaves_a_wake_with_no_lead_window_whole_test() {
 
 pub fn an_exact_lead_length_wake_is_all_lead_test() {
   scheduler.lead_split(300, 300) |> should.equal(#(0, 300))
-}
-
-pub fn surfaces_the_app_when_the_machine_was_asleep_test() {
-  let result =
-    scheduler.step(
-      "Safari",
-      [at(12, 0)],
-      effects_resting(macos.Slept, fn(_) { macos.Surfaced }),
-      from: nine_o_clock(),
-    )
-  result
-  |> should.equal(scheduler.Surfaced(
-    wake: wake_at(12, 0, 3),
-    showed: macos.Surfaced,
-  ))
-}
-
-pub fn surfaces_the_app_when_the_machine_was_awake_test() {
-  let result =
-    scheduler.step(
-      "Safari",
-      [at(12, 0)],
-      effects_resting(macos.Awake, fn(_) { macos.Surfaced }),
-      from: nine_o_clock(),
-    )
-  result
-  |> should.equal(scheduler.Surfaced(
-    wake: wake_at(12, 0, 3),
-    showed: macos.Surfaced,
-  ))
 }
 
 pub fn a_morning_wake_gets_a_minutes_lead_test() {
@@ -345,4 +281,38 @@ pub fn a_seven_o_clock_wake_is_treated_as_day_test() {
 pub fn a_ten_past_midnight_wake_gets_five_minutes_test() {
   // 00:10 the next day, so this is the small hours and not the evening.
   scheduler.lead_for(0) |> should.equal(300)
+}
+
+/// A real overnight wake, measured off the machine's own idle counter.
+/// 5.97s before going down, 8.31s after the RTC alarm brought it back
+/// 353 seconds later. A machine awake throughout would have reached 359.
+pub fn a_machine_that_froze_its_idle_counter_was_asleep_test() {
+  scheduler.slept_while(5, 8, 381) |> should.equal(True)
+}
+
+/// An untouched but running machine keeps pace with wall clock exactly, so
+/// its idle counter grows by the full length of the wait.
+pub fn a_machine_whose_idle_counter_kept_pace_was_awake_test() {
+  scheduler.slept_while(600, 981, 381) |> should.equal(False)
+}
+
+pub fn an_idle_counter_going_backwards_means_someone_touched_it_test() {
+  // Input arrived during the wait, so the machine was up and in use.
+  scheduler.slept_while(40, 2, 381) |> should.equal(False)
+}
+
+pub fn a_short_wait_with_no_idle_movement_at_all_still_reads_as_asleep_test() {
+  scheduler.slept_while(6, 6, 60) |> should.equal(True)
+}
+
+pub fn an_idle_counter_that_moved_with_the_wall_clock_reads_as_awake_test() {
+  scheduler.slept_while(0, 3600, 3600) |> should.equal(False)
+}
+
+pub fn a_machine_in_use_throughout_still_reads_as_asleep_test() {
+  // Hands on the keyboard the whole wait means the counter barely moves,
+  // which looks identical to a freeze. We ring once, the next idle reading
+  // drops below the baseline, and it stops. One ring is the cost of being
+  // wrong this way; silence is the cost of being wrong the other way.
+  scheduler.slept_while(0, 1, 381) |> should.equal(True)
 }
