@@ -189,7 +189,7 @@ pub fn step(
       // lags, and only the first one is needed: is there a Sleep inside the
       // window we just waited?
       let started = effects.now()
-      effects.sleep(duration.seconds(ahead))
+      sleep_seconds(effects, ahead)
       let elapsed = seconds_between(started, effects.now())
 
       // The log is the only thing consulted, and it is believed when it
@@ -214,11 +214,11 @@ pub fn step(
         True -> {
           effects.log("the Mac was asleep, waking you up first")
           let spent = rouse(effects)
-          sleep_remaining(remaining - spent, effects)
+          sleep_seconds(effects, remaining - spent)
         }
         False -> {
           effects.log("the Mac was awake throughout, nothing to wake")
-          sleep_remaining(remaining, effects)
+          sleep_seconds(effects, remaining)
         }
       }
 
@@ -296,13 +296,53 @@ pub fn ring_budget(lead_seconds: Int) -> Int {
 
 const ring_seconds: Int = 7
 
-/// Sleeps out whatever is left of the lead window, and no longer.
-fn sleep_remaining(seconds: Int, effects: Effects) -> Nil {
-  case seconds > 0 {
-    True -> effects.sleep(duration.seconds(seconds))
-    False -> Nil
+/// Sleeps `seconds`, measured against the wall clock.
+///
+/// Deliberately not one long `process.sleep`. That is the single worst bug
+/// this program has had, and it is invisible until a machine actually sleeps.
+///
+/// Erlang times a sleep against a monotonic clock, and on macOS that clock
+/// stops while the system is suspended. A sleep asked for 396 seconds comes
+/// back after 396 seconds of *uptime*, so every second the Mac spent asleep
+/// is added to the wait. Measured on a real wake: a sleep due at 01:37:00
+/// returned at 01:43:02 — the machine woke at 01:37:01, one second before
+/// the deadline, and the alarm did not start until five minutes after that.
+///
+/// It also quietly invalidates the old reasoning in this project's README,
+/// which claimed the sleep "immediately returns if enough real time has
+/// passed". It does not, and that claim is what the wake design was built
+/// on.
+///
+/// So the wait is taken in short steps against the wall clock instead, and
+/// the overshoot is bounded by one step however the machine got there.
+fn sleep_seconds(effects: Effects, seconds: Int) -> Nil {
+  let target = { whole_seconds(effects.now()) + seconds } % 86_400
+  sleep_until(effects, target, seconds)
+}
+
+/// `budget` is what is left of the intended wait, and only ever shrinks. It
+/// is what tells a target we have gone past from one that is still ahead:
+/// once we are late, the distance round the clock jumps to nearly a day,
+/// which is larger than any wait we ever ask for.
+fn sleep_until(effects: Effects, target: Int, budget: Int) -> Nil {
+  let now = whole_seconds(effects.now())
+  let ahead = { target - now } % 86_400
+  case ahead == 0 || ahead > budget {
+    True -> Nil
+    False -> {
+      let step = case ahead < sleep_step_seconds {
+        True -> ahead
+        False -> sleep_step_seconds
+      }
+      effects.sleep(duration.seconds(step))
+      sleep_until(effects, target, budget - step)
+    }
   }
 }
+
+/// How long a single `process.sleep` may run. This is the worst a wake can
+/// overshoot its deadline, and it holds whether the machine slept or not.
+const sleep_step_seconds: Int = 10
 
 /// Program 2. Brings a sleeping machine and its owner back to life.
 ///

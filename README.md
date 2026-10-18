@@ -169,17 +169,28 @@ why this works and what the limits are.
 
 ### What happens when the Mac sleeps
 
-Erlang's `process.sleep(N)` — which is what `showup` uses — is a pure CPU
-blocking call. When macOS enters idle sleep every user-space process is
-suspended, so the sleep timer ticks no faster than wall clock does. A wake
-time that falls while the Mac is asleep does not fire at the scheduled
-second.
+Erlang times `process.sleep` against a **monotonic** clock, and on macOS
+that clock stops while the system is suspended. A sleep of N seconds
+therefore returns after N seconds of *uptime* — every second the Mac spent
+asleep is added to the wait.
 
-But when macOS wakes the machine — whether from a user interaction, a
-network packet, or its own Power Nap schedule — the Erlang VM resumes
-execution from where it was suspended. `process.sleep` measures against
-wall clock, so it immediately returns if enough real time has passed. The
-scheduler then surfaces the app and continues the loop.
+This is not a small effect, and it was the last real bug in the program.
+Measured on a genuine overnight wake:
+
+```
+01:30:24  sleeping until 01:37:00          396 second sleep
+01:31:34  the Mac goes down
+01:37:01  the kernel's alarm brings it back — one second before the deadline
+01:43:02  the sleep finally returns          five minutes later
+```
+
+The machine was awake and running for the last five of those minutes. It
+was waiting for a clock that could not see the time it had already lost.
+
+So `showup` never sleeps for long. It sleeps in ten second steps against
+the **wall** clock and checks the deadline each time, which bounds the
+overshoot to one step — ten seconds — whether the machine slept the whole
+way, woke for a moment, or never slept at all.
 
 ### Why the idle timer gives us a safe window
 
