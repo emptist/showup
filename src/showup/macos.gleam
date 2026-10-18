@@ -2,6 +2,7 @@ import child_process
 import child_process/stdio
 import gleam/int
 import gleam/list
+import gleam/option.{type Option}
 import gleam/result
 import gleam/string
 import gleam/time/duration.{type Duration}
@@ -286,18 +287,79 @@ const rest_query: String =
 /// anything during it, so it counts as `Awake` — software that rings at
 /// nobody into a dark screen helps no one.
 pub fn parse_rest(log: String, now: Duration) -> Rest {
-  let lines =
-    log
-    |> string.split(on: "\n")
-    |> list.filter(fn(line) {
-      case event_of(line) {
-        Ok("Sleep") | Ok("Wake") | Ok("DarkWake") -> True
-        _ -> False
+  let entries = list.filter_map(string.split(log, on: "\n"), entry)
+  case entries {
+    [] -> Unknown
+    _ -> classify(entries, now)
+  }
+}
+
+type Entry {
+  Entry(event: String, at: Int)
+}
+
+fn entry(line: String) -> Result(Entry, Nil) {
+  case event_of(line) {
+    Error(Nil) -> Error(Nil)
+    Ok(event) ->
+      case timestamp_of(line) {
+        Error(Nil) -> Error(Nil)
+        Ok(at) -> Ok(Entry(event: event, at: at))
       }
-    })
-  case list.last(lines) {
-    Error(Nil) -> Unknown
-    Ok(line) -> classify(line, now)
+  }
+}
+
+/// Decides from the tail of the log, using the whole shape of it rather than
+/// just its last line.
+///
+/// The last line alone is not enough, and getting that wrong is exactly what
+/// broke the first attempt. `showup` asks the power log the instant the VM
+/// resumes, which is a fraction of a second after the kernel wakes the CPU —
+/// before powerd has written the `Wake` line. On a real wake the log
+/// therefore still *ends at the `Sleep`*, and reading that as "the machine
+/// never went down" is the one wrong answer that matters, because it is the
+/// only moment anyone asks.
+///
+/// So the question is not "what was the last event" but "did we go down after
+/// our last recorded wake". A `Sleep` that comes after every `Wake` in the
+/// tail means we did go down, whatever the log has not caught up with yet.
+fn classify(entries: List(Entry), now: Duration) -> Rest {
+  let last_sleep = last_at(entries, "Sleep")
+  let last_wake = last_at(entries, "Wake")
+  case last_sleep {
+    option.None ->
+      case last_wake {
+        option.None -> Unknown
+        option.Some(at) -> recently(at, now)
+      }
+    option.Some(slept_at) ->
+      case last_wake {
+        option.Some(woke_at) if woke_at > slept_at -> recently(woke_at, now)
+        _ -> Slept
+      }
+  }
+}
+
+fn last_at(entries: List(Entry), event: String) -> Option(Int) {
+  let matching = list.filter(entries, fn(one) { one.event == event })
+  case list.last(matching) {
+    Error(Nil) -> option.None
+    Ok(Entry(at: at, ..)) -> option.Some(at)
+  }
+}
+
+fn recently(at: Int, now: Duration) -> Rest {
+  // Measured round the clock rather than by subtraction, so a wake just
+  // before midnight and a clock reading just after it are two seconds apart
+  // rather than nearly a day.
+  let difference = whole_seconds(now) - at
+  let gap = case difference < 0 {
+    True -> difference + 86_400
+    False -> difference
+  }
+  case gap >= 0 && gap <= just_woke_seconds {
+    True -> Slept
+    False -> Awake
   }
 }
 
@@ -326,31 +388,6 @@ fn words(line: String) -> List(String) {
   |> string.replace(each: "\t", with: " ")
   |> string.split(on: " ")
   |> list.filter(fn(part) { part != "" })
-}
-
-fn classify(line: String, now: Duration) -> Rest {
-  case event_of(line) {
-    Ok("Wake") ->
-      case timestamp_of(line) {
-        Error(_) -> Unknown
-        Ok(at) -> {
-          // Measured round the clock rather than by subtraction, so a wake
-          // just before midnight and a clock reading just after it are two
-          // seconds apart rather than nearly a day.
-          let difference = whole_seconds(now) - at
-          let gap = case difference < 0 {
-            True -> difference + 86_400
-            False -> difference
-          }
-          case gap >= 0 && gap <= just_woke_seconds {
-            True -> Slept
-            False -> Awake
-          }
-        }
-      }
-    Ok(_) -> Awake
-    Error(_) -> Unknown
-  }
 }
 
 /// How long after the recorded wake the clock may read and still count as
