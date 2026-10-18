@@ -153,7 +153,9 @@ pub fn step(
       // surfacing: if we already are (scenario 1, or scenario 2 with
       // autologin) this returns immediately; otherwise we poll until login
       // finishes.
+      effects.log("checking if desktop is ready...")
       ensure_at_desktop(effects)
+      effects.log("about to show " <> app)
       let showed = effects.show(app)
       report(app, showed, effects)
 
@@ -179,12 +181,18 @@ fn report(app: String, showed: macos.Outcome, effects: Effects) -> Nil {
 ///
 /// Gives up after 120 seconds in case they walked away mid-login.
 fn ensure_at_desktop(effects: Effects) -> Nil {
-  poll_until_desktop(effects, 120)
+  case effects.at_desktop() {
+    True -> effects.log("already at desktop")
+    False -> {
+      effects.log("waiting for login to complete...")
+      poll_until_desktop(effects, 120)
+    }
+  }
 }
 
 fn poll_until_desktop(effects: Effects, remaining: Int) -> Nil {
   case effects.at_desktop() {
-    True -> Nil
+    True -> effects.log("login complete, desktop ready")
     False ->
       case remaining > 0 {
         True -> {

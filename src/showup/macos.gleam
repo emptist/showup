@@ -36,18 +36,62 @@ fn exec(executable: String, args: List(String)) -> Result(String, String) {
 
 /// Brings `app` to the foreground, launching it when it is not running.
 ///
-/// `open -a` is all that is needed here. macOS activates a running app
-/// through LaunchServices, which brings its windows to the front and gives it
-/// focus, and asking System Events to raise the window on top of that only
-/// added a permission that has to be granted before it works at all.
+/// IMPORTANT: showup runs as root (for pmset), so `open -a` would launch
+/// the app in root's session instead of the logged-in user's — the window
+/// would never appear on their screen. We use `launchctl asuser <uid>` to
+/// re-execute `open -a` in the correct GUI session.
 pub fn show(app: String) -> Outcome {
   let was_running = is_running(app)
-  case exec("/usr/bin/open", ["-a", app]) {
+  case console_uid() {
+    Ok(uid) ->
+      case
+        exec("/bin/launchctl", [
+          "asuser",
+          int.to_string(uid),
+          "/usr/bin/open",
+          "-a",
+          app,
+        ])
+      {
+        Error(reason) -> Failed(reason: reason)
+        Ok(_) ->
+          case was_running {
+            True -> Surfaced
+            False -> Launched
+          }
+      }
     Error(reason) -> Failed(reason: reason)
-    Ok(_) ->
-      case was_running {
-        True -> Surfaced
-        False -> Launched
+  }
+}
+
+/// Extracts the ConsoleUser's UID from scutil. Returns the UID of the user
+/// currently holding the GUI session, or an error if we cannot determine it.
+///
+/// We need this because showup runs as root and cannot directly open apps
+/// in the user's GUI session — we must delegate to `launchctl asuser <uid>`.
+pub fn console_uid() -> Result(Int, String) {
+  case exec("/usr/sbin/scutil", ["show", "State:/Users/ConsoleUser"]) {
+    Ok(output) -> parse_uid(output)
+    Error(reason) -> Error(reason)
+  }
+}
+
+/// Parses `UID : 501` from scutil output.
+fn parse_uid(output: String) -> Result(Int, String) {
+  case string.contains(output, "UID : 0") {
+    True -> Error("no console user (UID is 0)")
+    False ->
+      case string.split(output, on: "UID : ") {
+        [_, rest] ->
+          case string.split(rest, on: "\n") {
+            [value, ..] ->
+              case string.trim(value) |> int.parse {
+                Ok(uid) -> Ok(uid)
+                Error(_) -> Error("could not parse UID from scutil output")
+              }
+            _ -> Error("malformed scutil output")
+          }
+        _ -> Error("UID line not found in scutil output")
       }
   }
 }
@@ -79,18 +123,18 @@ pub fn idle_seconds() -> Int {
 }
 
 /// Whether the user is currently at their desktop (not on the login
-/// window). Checks `scutil State:/Users/ConsoleUser`. Returns True whenever
-/// the ConsoleUser reports a non-zero UID with LoginDoneKey = TRUE — this
-/// covers both autologin (no password set) and the moment a user finishes
-/// typing their password. Returns False while the login window is showing.
+/// window). True when we can read a valid console UID AND scutil reports
+/// LoginDoneKey = TRUE. Returns False while the login window is showing.
 pub fn at_desktop() -> Bool {
-  case exec("/usr/sbin/scutil", ["show", "State:/Users/ConsoleUser"]) {
-    Ok(output) ->
-      string.contains(output, "kCGSessionLoginDoneKey : TRUE")
-      && !string.contains(output, "UID : 0")
-    // If scutil fails for any reason, assume we're at the desktop — better
-    // to show the app than to hang waiting for a login that isn't there.
-    Error(_) -> True
+  case console_uid() {
+    Ok(_) ->
+      case exec("/usr/sbin/scutil", ["show", "State:/Users/ConsoleUser"]) {
+        Ok(output) -> string.contains(output, "kCGSessionLoginDoneKey : TRUE")
+        // If scutil fails after we already got a UID, trust the UID.
+        Error(_) -> True
+      }
+    // No console user at all (UID 0 or not found) → definitely not at desktop.
+    Error(_) -> False
   }
 }
 
