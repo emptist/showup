@@ -9,9 +9,20 @@ import showup/macos
 pub const ringback_tone: String =
   "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/facetime/multiway_invitation.caf"
 
-/// How many refused playbacks are waited out before the sound is
-/// declared unplayable.
-const default_play_failures: Int = 3
+/// How many refused playbacks are waited out before the sound is declared
+/// unplayable.
+///
+/// This was 3, and it is why a real 04:00 wake produced no sound at all:
+/// `afplay` was refused with `AudioQueueStart failed (-66681)` while the
+/// audio device was still coming up, three tries over fifteen seconds were
+/// not enough, and the alarm gave up for good. The device is the slow part
+/// of a wake, not the sound file, so this has to outlast it.
+///
+/// Sized to cover the whole overnight lead window, so the alarm is still
+/// trying right up to the moment the window is due. An alarm that has run
+/// out of patience has nothing left to give, and the one thing this program
+/// exists to do is make a noise.
+const default_play_failures: Int = 40
 
 /// How hard `showup` tries to wake someone up.
 pub type Options {
@@ -58,11 +69,8 @@ pub type Effects {
 
 /// Rings until the keyboard or mouse is touched.
 ///
-/// option.None gives up on its own. The whole point is to reach someone who is
-/// asleep, and a person who has not moved for the first six rings has not
-/// been reached yet — a ring that stops is a ring that failed. It runs in
-/// its own process, so nothing else waits on it, and the only thing that
-/// stops it is a hand on the keyboard.
+/// The only thing that stops it is a hand on the keyboard. It runs in its
+/// own process, so nothing else waits on it.
 pub fn ringing() -> fn() -> Outcome {
   fn() { ring(default_options(), live()) }
 }
@@ -95,26 +103,26 @@ pub fn default_options() -> Options {
 /// Returns what happened so the caller can say so, rather than logging from
 /// here.
 pub fn ring(options: Options, effects: Effects) -> Outcome {
-  // Capture the idle baseline at the moment we start ringing. Any activity
-  // that happened BEFORE the ring (sudo password entry, pmset wake itself...)
-  // must not short-circuit us. We only stop when idle drops below this
-  // baseline — meaning NEW keyboard or mouse input arrived while we rang.
-  let baseline = effects.idle_seconds()
-  keep_ringing(options, effects, 1, baseline, 0)
+  keep_ringing(options, effects, 1, 0)
 }
 
 /// Whether the ringing has done its job.
 ///
-/// Either a hand reached the keyboard, or a cap was set and has been reached.
-/// `option.None` is the production answer: a ring that stops on its own is a ring
-/// that failed to wake anyone.
-fn answered(
-  idle_now: Int,
-  baseline: Int,
-  rings: Int,
-  options: Options,
-) -> Bool {
-  let touched = idle_now < baseline
+/// This used to compare each reading against a baseline taken before the
+/// first ring, so that a `sudo` password or the wake itself could not be
+/// mistaken for the user answering. But the baseline is read from
+/// `HIDIdleTime`, and a wake registers as HID activity — so on a real wake
+/// the baseline is often **zero**, and `idle_now < 0` is never true. The
+/// alarm could not be stopped by anything at all, not even a hand on the
+/// keyboard, and with no ring cap it would run until showup was killed.
+///
+/// An absolute reading cannot get stuck like that. Input within the last
+/// second means someone is there. The only thing it needs guarding is the
+/// wake's own activity, so the first ring is never allowed to answer
+/// itself: nobody gets out of bed, decides they are awake, and silences the
+/// alarm before it has properly started.
+fn answered(idle_now: Int, rings: Int, options: Options) -> Bool {
+  let touched = rings >= 2 && idle_now <= 1
   let capped = case options.give_up_after {
     option.None -> False
     option.Some(limit) -> rings >= limit
@@ -126,16 +134,15 @@ fn keep_ringing(
   options: Options,
   effects: Effects,
   rings: Int,
-  baseline: Int,
   failures: Int,
 ) -> Outcome {
   case effects.play(ringback_tone) {
     Ok(Nil) -> {
       effects.sleep(options.between)
       let idle_now = effects.idle_seconds()
-      case answered(idle_now, baseline, rings, options) {
+      case answered(idle_now, rings, options) {
         True -> Rung(rings: rings)
-        False -> keep_ringing(options, effects, rings + 1, baseline, 0)
+        False -> keep_ringing(options, effects, rings + 1, 0)
       }
     }
     Error(reason) ->
@@ -143,7 +150,7 @@ fn keep_ringing(
         True -> Silent(reason: reason)
         False -> {
           effects.sleep(options.between)
-          keep_ringing(options, effects, rings, baseline, failures + 1)
+          keep_ringing(options, effects, rings, failures + 1)
         }
       }
   }

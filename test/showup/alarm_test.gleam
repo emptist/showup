@@ -43,26 +43,6 @@ pub fn stops_at_the_cap_when_nothing_else_happens_test() {
   quiet(6, idle_for(5)) |> should.equal(alarm.Rung(rings: 6))
 }
 
-pub fn baseline_is_read_before_the_first_ring_test() {
-  // Baseline is 5 and idle stays 5. A ring can only stop when idle drops
-  // BELOW the baseline, so an unchanged reading never stops it — which is
-  // what stops the wake itself, or a sudo password typed earlier, from
-  // being mistaken for the user answering.
-  quiet(6, idle_for(5)) |> should.equal(alarm.Rung(rings: 6))
-}
-
-pub fn a_baseline_of_zero_is_never_beaten_by_a_still_zero_test() {
-  // 0 < 0 is false, so a Mac that has just woken — where the idle reading
-  // starts at zero — rings all the way to the cap.
-  let just_woken =
-    alarm.Effects(
-      idle_seconds: fn() { 0 },
-      play: fn(_) { Ok(Nil) },
-      sleep: fn(_) { Nil },
-    )
-  quiet(3, just_woken) |> should.equal(alarm.Rung(rings: 3))
-}
-
 pub fn rings_once_when_asked_to_test() {
   quiet(1, idle_for(600)) |> should.equal(alarm.Rung(rings: 1))
 }
@@ -109,12 +89,6 @@ pub fn stays_quiet_when_ringing_was_switched_off_test() {
 /// just woken from deep sleep may refuse the first one or two while its
 /// audio stack comes up. Giving up on the first refusal is how the alarm
 /// ends up silent on the one wake that needed it.
-pub fn waits_out_audio_that_is_not_ready_yet_test() {
-  // The production answer must be more than one try, or the retry is not
-  // really there.
-  alarm.default_options().play_failures |> should.equal(3)
-}
-
 /// A sound that never plays still ends the alarm, rather than ringing at
 /// nobody until showup is stopped.
 pub fn gives_up_on_a_sound_that_never_plays_test() {
@@ -129,6 +103,20 @@ pub fn gives_up_on_a_sound_that_never_plays_test() {
 
 /// How many times the alarm tries before giving up is the production value,
 /// not a test's, so that the wait is a real one.
-pub fn the_production_alarm_waits_out_three_refused_playbacks_test() {
-  alarm.default_options().play_failures |> should.equal(3)
+/// A wake registers as HID activity, so the idle reading at the moment the
+/// alarm starts is routinely zero. Under the old baseline comparison that
+/// made `idle_now < 0` — never true — so nothing could ever stop the alarm,
+/// not even a hand on the keyboard.
+pub fn a_baseline_of_zero_no_longer_makes_the_alarm_unstoppable_test() {
+  quiet(99, idle_for(0)) |> should.equal(alarm.Rung(rings: 2))
+}
+
+/// Input during the ringing stops it, whenever the alarm happened to start.
+pub fn input_during_the_ringing_stops_it_test() {
+  quiet(99, idle_for(1)) |> should.equal(alarm.Rung(rings: 2))
+}
+
+/// The device needs longer than fifteen seconds to come up on a real wake.
+pub fn waits_out_an_audio_device_that_is_still_coming_up_test() {
+  alarm.default_options().play_failures |> should.equal(40)
 }

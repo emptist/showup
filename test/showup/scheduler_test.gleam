@@ -268,3 +268,9 @@ pub fn a_log_saying_yes_still_wakes_the_person_test() {
 
 const real_sleep: String =
   "2026-10-19 00:53:02 +0800 Sleep               \tEntering Sleep state due to 'Software Sleep pid=660' 359 secs  "
+/// A login that times out must report the time it actually spent.
+///
+/// It reported `remaining`, which is zero on that branch, so the caller
+/// thought nothing had been waited and slept out the whole lead window
+/// again — putting a window that needed a password a full lead plus two
+/// minutes late, on top of the lateness it had already suffered.
