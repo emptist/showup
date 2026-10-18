@@ -3,7 +3,7 @@ import gleam/int
 import gleam/io
 import gleam/list
 import gleam/string
-import gleam/time/calendar.{type TimeOfDay}
+import gleam/time/calendar.{type TimeOfDay, TimeOfDay}
 import gleam/time/duration.{type Duration}
 import gleam/time/timestamp
 import showup/alarm
@@ -16,6 +16,8 @@ pub type Effects {
   Effects(
     now: fn() -> Duration,
     sleep: fn(Duration) -> Nil,
+    schedule_wake: fn(String) -> Result(Nil, String),
+    cancel_wake: fn() -> Result(Nil, String),
     keep_awake: fn(Int) -> Result(Nil, String),
     show: fn(String) -> macos.Outcome,
     alarm: fn() -> alarm.Outcome,
@@ -38,6 +40,8 @@ pub fn live(alarm: fn() -> alarm.Outcome) -> Effects {
   Effects(
     now: now,
     sleep: sleep,
+    schedule_wake: macos.schedule_wake,
+    cancel_wake: macos.cancel_wake,
     keep_awake: macos.keep_awake,
     show: macos.show,
     alarm: alarm,
@@ -89,15 +93,10 @@ pub fn next_instant(
 
 const resync_after_seconds: Int = 60
 
-/// Seconds for the power assertion. 90s is long enough to cover
-/// `open -a`, `lsappinfo`, any ringing, and a safety margin, while
-/// still short enough that the Mac can sleep again soon after.
-///
-/// The Mac's own idle sleep timer (typically 25-30 min from the last
-/// keyboard or network input) gives plenty of headroom once the wake
-/// returns, so we start the assertion right before surfacing rather
-/// than pre-warming it.
-const keep_awake_seconds: Int = 90
+/// Seconds for the power assertion. 60s is long enough to cover
+/// `open -a`, any ringing, and a small drift margin, while still short
+/// enough that the Mac can sleep again within one minute of finishing.
+const keep_awake_seconds: Int = 60
 
 fn whole_seconds(period: Duration) -> Int {
   let #(seconds, _nanoseconds) = duration.to_seconds_and_nanoseconds(period)
@@ -114,15 +113,58 @@ pub fn step(
   case schedule.next(times, now) {
     Error(schedule.NothingToSchedule) -> Idle
     Ok(wake) -> {
+      let TimeOfDay(hours: hour, minutes: minute, ..) = wake.at
+      let #(delay_seconds, _) =
+        duration.to_seconds_and_nanoseconds(wake.delay)
+      let datetime = macos.pmset_datetime(hour, minute, delay_seconds)
       effects.log(
         "waking at "
         <> schedule.to_string(wake.at)
-        <> ", in "
+        <> " (pmset "
+        <> datetime
+        <> "), in "
         <> describe_delay(wake.delay),
       )
+      // Cancel any stale one-shot wakes from previous loops, then ask the
+      // kernel to wake the Mac exactly when we need it. pmset schedule is a
+      // one-shot — it fires once and then the kernel forgets about it.
+      case effects.cancel_wake() {
+        Error(reason) -> effects.warn("could not cancel old wake: " <> reason)
+        Ok(_) -> Nil
+      }
+      case effects.schedule_wake(datetime) {
+        Error(reason) ->
+          effects.warn(
+            "could not schedule wake (did you run with sudo?): " <> reason,
+          )
+        Ok(_) -> Nil
+      }
       effects.sleep(wake.delay)
-      // Power assertion so the Mac does not re-sleep between waking
-      // up from the long sleep and finishing the show + alarm work.
+
+      // Why we still hold a brief caffeinate assertion
+      //
+      // pmset schedule wake gives us a FullWake at the exact wall-clock time.
+      // When that wake arrives the idle sleep timer resets to the system-wide
+      // value (typically 25-30 min), so the Mac will not re-sleep during the
+      // ~15 seconds it takes to run `open -a`, surfacing the app, and ringing
+      // the alarm. In that sense this assertion is redundant.
+      //
+      // It stays for two edge cases that are real on this machine:
+      //
+      // 1. Power Nap on battery with lid closed: pmset wake may only deliver a
+      //    DarkWake instead of a FullWake. The process gets scheduled but the
+      //    machine never truly "woke up". A short assertion nudges the OS to
+      //    escalate this DarkWake to a real interactive wake so `open -a` and
+      //    the ringback tone actually reach the user.
+      //
+      // 2. pmset misfire (rare but observed in the wild): if pmset wakes a
+      //    little too early or late, the assertion covers up to ~90 seconds
+      //    of drift so we still finish show + alarm before the Mac decides
+      //    idle sleep should kick in again.
+      //
+      // Cost is near-zero: a single `caffeinate -i -t 90` subprocess that the
+      // kernel tracks as one more counter, then forgets about 90 seconds
+      // later. No memory, no CPU, no filesystem.
       case effects.keep_awake(keep_awake_seconds) {
         Error(reason) -> effects.warn("could not prevent sleep: " <> reason)
         Ok(_) -> Nil

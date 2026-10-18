@@ -67,27 +67,43 @@ pub fn default_options() -> Options {
 
 /// Rings until the keyboard or mouse is touched, or until patience runs out.
 ///
+/// Always plays the ringback tone — we do not skip ringing even if the system
+/// appears to be active, because the whole point is to make sure the user
+/// notices the app surfacing. Stops as soon as any keyboard or mouse activity
+/// is detected (`idle_seconds < 1`).
+///
 /// Returns what happened so the caller can say so, rather than logging from
 /// here.
 pub fn ring(options: Options, effects: Effects) -> Outcome {
-  case effects.idle_seconds() >= whole_seconds(options.idle_after) {
-    False -> Awake
-    True -> keep_ringing(options, effects, 1)
-  }
+  // Capture the idle baseline at the moment we start ringing. Any activity
+  // that happened BEFORE the ring (sudo password entry, pmset wake itself...)
+  // must not short-circuit us. We only stop when idle drops below this
+  // baseline — meaning NEW keyboard or mouse input arrived while we rang.
+  let baseline = effects.idle_seconds()
+  keep_ringing(options, effects, 1, baseline)
 }
 
-fn keep_ringing(options: Options, effects: Effects, rings: Int) -> Outcome {
-  // A sound that will not play is worth saying so rather than repeating a
-  // failure six times.
+fn keep_ringing(
+  options: Options,
+  effects: Effects,
+  rings: Int,
+  baseline: Int,
+) -> Outcome {
   case effects.play(ringback_tone) {
     Error(reason) -> Silent(reason: reason)
     Ok(Nil) -> {
       effects.sleep(options.between)
-      let answered = effects.idle_seconds() < 1
+      let idle_now = effects.idle_seconds()
+      let answered = idle_now < baseline
       let out_of_patience = rings >= options.give_up_after
       case answered || out_of_patience {
         True -> Rung(rings: rings)
-        False -> keep_ringing(options, effects, rings + 1)
+        False -> keep_ringing(
+          options,
+          effects,
+          rings + 1,
+          baseline,
+        )
       }
     }
   }
@@ -95,9 +111,4 @@ fn keep_ringing(options: Options, effects: Effects, rings: Int) -> Outcome {
 
 fn sleep(delay: Duration) -> Nil {
   process.sleep(duration.to_milliseconds(delay))
-}
-
-fn whole_seconds(period: Duration) -> Int {
-  let #(seconds, _nanoseconds) = duration.to_seconds_and_nanoseconds(period)
-  seconds
 }

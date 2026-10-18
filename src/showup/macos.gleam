@@ -3,6 +3,12 @@ import child_process/stdio
 import gleam/int
 import gleam/string
 
+/// Calls a local Erlang BIF directly without writing any `.erl`.
+/// `calendar:local_time/0` returns `{{Year, Month, Day}, {Hour, Minute, Second}}`
+/// which Gleam maps to `#(#(Int, Int, Int), #(Int, Int, Int))`.
+@external(erlang, "calendar", "local_time")
+fn local_time() -> #(#(Int, Int, Int), #(Int, Int, Int))
+
 /// What happened when macOS was asked to surface an app.
 pub type Outcome {
   /// The app was not running and has been launched.
@@ -96,21 +102,130 @@ pub fn play(sound: String) -> Result(Nil, String) {
   }
 }
 
-/// Holds a PreventUserIdleSystemSleep assertion for `seconds` seconds.
+/// Holds three assertions for `seconds` seconds:
+///   - PreventUserIdleSystemSleep    (-i) keep CPU awake
+///   - PreventDisplaySleep            (-d) keep display from going back to sleep
+///   - UserIsActive                   (-u) WAKES THE DISPLAY if it's off
 ///
-/// Spawns `caffeinate -i -t <seconds>` via `/bin/sh ... &` so the
+/// Spawns `caffeinate -i -d -u -t <seconds>` via `/bin/sh ... &` so the
 /// exec call returns immediately — caffeinate runs in the background,
-/// holds the assertion, and exits by itself after the timeout. No PID
+/// holds the assertions, and exits by itself after the timeout. No PID
 /// tracking needed, no manual kill. Zero or more concurrent assertions
 /// are fine; macOS counts them independently.
 ///
-/// This is called right before surfacing an app and ringing an alarm,
-/// so those operations complete even if the Mac was just woken from
-/// sleep and the idle counter has not reset yet.
+/// The `-u` flag is critical here. `pmset schedule wake` wakes the CPU
+/// but leaves the display dark. `-d` only PREVENTS future sleep — it
+/// cannot turn a display that is already sleeping back on. `-u` declares
+/// user activity, which DOES turn the display on, speaker-enables the
+/// ringback tone, and ensures `open -a` surfaces an app the user can
+/// actually see. Without `-u`, the show + alarm run headless.
 pub fn keep_awake(seconds: Int) -> Result(Nil, String) {
-  let cmd = "/usr/bin/caffeinate -i -t " <> int.to_string(seconds) <> " &"
+  let cmd = "/usr/bin/caffeinate -i -d -u -t " <> int.to_string(seconds) <> " &"
   case exec("/bin/sh", ["-c", cmd]) {
     Ok(_) -> Ok(Nil)
     Error(reason) -> Error(reason)
   }
+}
+
+/// Asks the kernel to wake the Mac at a specific wall-clock datetime.
+///
+/// Calls `pmset schedule wake "MM/DD/YYYY HH:MM:SS"`. This is a one-shot
+/// schedule — the kernel fires it once and then forgets about it. Only
+/// root can call pmset schedule, so showup must be run with `sudo`.
+pub fn schedule_wake(datetime: String) -> Result(Nil, String) {
+  case exec("/usr/bin/pmset", ["schedule", "wake", datetime]) {
+    Ok(_) -> Ok(Nil)
+    Error(reason) -> Error(reason)
+  }
+}
+
+/// Removes any previously scheduled one-shot wake events we set.
+///
+/// Before setting a new wake, we cancel all old ones so a stale schedule
+/// does not accidentally wake the Mac at the wrong time. Uses `pmset schedule
+/// cancel wake`, which removes all pending one-shot wake events (but leaves
+/// `pmset repeat` settings alone).
+pub fn cancel_wake() -> Result(Nil, String) {
+  case exec("/usr/bin/pmset", ["schedule", "cancel", "wake"]) {
+    Ok(_) -> Ok(Nil)
+    Error(reason) -> Error(reason)
+  }
+}
+
+/// Builds the `MM/DD/YYYY HH:MM:SS` string pmset expects for a wake that is
+/// `delay_seconds` from now, targeting a specific hour and minute on that day.
+///
+/// Reads today's date via Erlang's `calendar:local_time/0`, then advances by
+/// 1 day if the target time has already passed today.
+pub fn pmset_datetime(hour: Int, minute: Int, delay_seconds: Int) -> String {
+  let #(#(year, month, day), _) = local_time()
+  let target_hour = hour
+  let target_minute = minute
+  let target_second = 0
+  let total_day_seconds = 86_400
+  let days_ahead = delay_seconds / total_day_seconds
+  let #(final_year, final_month, final_day) =
+    advance_date(year, month, day, days_ahead)
+  string.join(
+    [
+      pad(final_month),
+      "/",
+      pad(final_day),
+      "/",
+      int.to_string(final_year),
+      " ",
+      pad(target_hour),
+      ":",
+      pad(target_minute),
+      ":",
+      pad(target_second),
+    ],
+    with: "",
+  )
+}
+
+/// Advances a Gregorian date by `days` days. For our use case `days` is
+/// always 0 (today) or 1 (tomorrow — the target time already passed today).
+fn advance_date(
+  year: Int,
+  month: Int,
+  day: Int,
+  days: Int,
+) -> #(Int, Int, Int) {
+  case days > 0 {
+    True -> advance_one_day(year, month, day)
+    False -> #(year, month, day)
+  }
+}
+
+fn advance_one_day(year: Int, month: Int, day: Int) -> #(Int, Int, Int) {
+  let max_day = days_in_month(year, month)
+  case day + 1 > max_day {
+    True ->
+      case month + 1 > 12 {
+        True -> #(year + 1, 1, 1)
+        False -> #(year, month + 1, 1)
+      }
+    False -> #(year, month, day + 1)
+  }
+}
+
+fn days_in_month(year: Int, month: Int) -> Int {
+  case month {
+    2 ->
+      case is_leap_year(year) {
+        True -> 29
+        False -> 28
+      }
+    4 | 6 | 9 | 11 -> 30
+    _ -> 31
+  }
+}
+
+fn is_leap_year(year: Int) -> Bool {
+  year % 4 == 0 && year % 100 != 0 || year % 400 == 0
+}
+
+fn pad(value: Int) -> String {
+  string.pad_start(int.to_string(value), to: 2, with: "0")
 }
