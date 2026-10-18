@@ -196,12 +196,21 @@ If the assertion cannot be taken, `showup` warns and carries on. The alarm
 and the window matter more than the assertion, so a missing `caffeinate` is
 never a reason to skip a wake.
 
-> **Not yet proven.** That `-u` really does bring the display back is the one
-> claim in this README that has not been measured on this machine.
-> `IODisplayWranglerState` — the property that says whether the screen is lit —
-> is not readable without root, and until it is, `showup` logs "brought X to
-> the foreground" without knowing whether anyone can see it. Everything else
-> here was checked against real output.
+> **What was checked, and what could not be.** `showup` can confirm that it
+> *asked* for the display — `pmset -g assertions` shows `UserIsActive` held by
+> `caffeinate` while it runs. It cannot confirm that the screen *lit*.
+> `IODisplayWranglerState`, the property that says so, does not exist on Apple
+> Silicon: the `IODisplayWrangler` node is present in the registry but carries
+> only class and identity properties, with or without root, and no display
+> power state is readable anywhere in the tree. That property is Intel-era. On
+> an Intel Mac this would be checkable and should be.
+>
+> It does not matter much, because the design already covers the case. Program 2
+> rings until the keyboard or mouse is touched, and touching either is exactly
+> what brings a display up. So by the time the window is raised, either the user
+> moved and the screen is lit, or nobody came back and nothing was lost by
+> raising a window into a dark screen. The alarm is the guarantee; a display
+> query would only restate it.
 
 ### When the assertion is useful versus when it is redundant
 
