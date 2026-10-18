@@ -141,10 +141,36 @@ pub fn step(
       }
       effects.sleep(wake.delay)
 
-      // Both scenarios ring + surface. The only difference is scenario 2
-      // (Mac actually slept) may need to wait for login before surfacing.
-      // We determine which scenario by comparing idle against the system
-      // sleep timer — if idle > sleep_timer + margin, the Mac was asleep.
+      // Read idle BEFORE ringing — the alarm waits for a keyboard/mouse
+      // touch to stop ringing, and that touch resets HIDIdleTime to 0. If
+      // we read idle after the alarm it will always be 0 and we could
+      // never tell scenario 1 (Mac stayed awake) from scenario 2 (Mac
+      // slept, pmset woke us).
+      let idle = effects.idle_seconds()
+      let threshold = effects.sleep_timer_seconds() + sleep_margin_seconds
+      let was_sleeping = idle > threshold
+
+      case was_sleeping {
+        True ->
+          effects.log(
+            "machine was sleeping (idle "
+            <> int.to_string(idle)
+            <> "s > threshold "
+            <> int.to_string(threshold)
+            <> "s)",
+          )
+        False ->
+          effects.log(
+            "machine was awake (idle "
+            <> int.to_string(idle)
+            <> "s <= threshold "
+            <> int.to_string(threshold)
+            <> "s)",
+          )
+      }
+
+      // Both scenarios ring — the user must acknowledge the alarm whether
+      // they were actively working or were woken from sleep.
       let rung = effects.alarm()
       case rung {
         alarm.Awake -> effects.log("you were already awake, skipping alarm")
@@ -156,34 +182,12 @@ pub fn step(
           effects.warn("could not ring: " <> reason)
       }
 
-      let idle = effects.idle_seconds()
-      let threshold = effects.sleep_timer_seconds() + sleep_margin_seconds
-
-      case idle > threshold {
-        True -> {
-          // Scenario 2: Mac was sleeping, user woke it by touching the
-          // keyboard to silence the alarm. They're likely typing a password
-          // at the login window. Wait for desktop before surfacing.
-          effects.log(
-            "machine was sleeping (idle "
-            <> int.to_string(idle)
-            <> "s > threshold "
-            <> int.to_string(threshold)
-            <> "s)",
-          )
-          ensure_at_desktop(effects)
-        }
-        False -> {
-          // Scenario 1: Mac stayed awake, user just silenced the alarm.
-          // Already at the desktop, no login wait needed.
-          effects.log(
-            "machine was awake (idle "
-            <> int.to_string(idle)
-            <> "s <= threshold "
-            <> int.to_string(threshold)
-            <> "s)",
-          )
-        }
+      // Scenario 2 only: user woke from sleep, likely typing password at
+      // login window. Wait for desktop before surfacing so `open -a` fires
+      // into a real session. Scenario 1 is already at the desktop.
+      case was_sleeping {
+        True -> ensure_at_desktop(effects)
+        False -> Nil
       }
 
       let showed = effects.show(app)
