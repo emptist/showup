@@ -1,7 +1,7 @@
 import child_process
 import child_process/stdio
 import gleam/int
-import gleam/io
+import gleam/list
 import gleam/string
 
 /// Calls a local Erlang BIF directly without writing any `.erl`.
@@ -69,25 +69,10 @@ pub fn show(app: String) -> Outcome {
 /// scutil reads commands from stdin, not from argv — passing them as args
 /// causes it to hang waiting for stdin input forever.
 fn scutil_query() -> Result(String, String) {
-  case
-    exec("/bin/sh", [
-      "-c",
-      "echo 'show State:/Users/ConsoleUser' | /usr/sbin/scutil",
-    ])
-  {
-    Ok(output) -> {
-      io.println(
-        "[debug] scutil output ("
-        <> int.to_string(string.length(output))
-        <> " chars)",
-      )
-      Ok(output)
-    }
-    Error(reason) -> {
-      io.println_error("[debug] scutil failed: " <> reason)
-      Error(reason)
-    }
-  }
+  exec("/bin/sh", [
+    "-c",
+    "echo 'show State:/Users/ConsoleUser' | /usr/sbin/scutil",
+  ])
 }
 
 /// Extracts the ConsoleUser's UID from scutil. Returns the UID of the user
@@ -103,24 +88,31 @@ pub fn console_uid() -> Result(Int, String) {
 }
 
 /// Parses `UID : 501` from scutil output.
-fn parse_uid(output: String) -> Result(Int, String) {
-  case string.contains(output, "UID : 0") {
-    True -> Error("no console user (UID is 0)")
-    False ->
-      case string.split(output, on: "UID : ") {
-        [_, rest] ->
-          case string.split(rest, on: "\n") {
-            [value, ..] ->
-              case string.trim(value) |> int.parse {
-                Ok(uid) -> Ok(uid)
-                Error(_) -> Error("could not parse UID from scutil output")
-              }
-            _ -> Error("malformed scutil output")
+///
+/// Matches whole lines rather than searching for the substring `UID : `,
+/// because `CGSSessionUniqueSessionUUID : 3CC66676-...` ends with that same
+/// substring and a plain split on it finds two matches, not one.
+pub fn parse_uid(output: String) -> Result(Int, String) {
+  let candidates =
+    output
+    |> string.split(on: "\n")
+    |> list.filter(fn(line) { string.starts_with(string.trim(line), uid_key) })
+  case candidates {
+    [] -> Error("no UID line in scutil output")
+    [line, ..] ->
+      case string.split(string.trim(line), on: uid_key) {
+        [_, value] ->
+          case value |> string.trim |> int.parse {
+            Ok(0) -> Error("no console user (UID is 0)")
+            Ok(uid) -> Ok(uid)
+            Error(_) -> Error("could not parse UID from scutil output")
           }
-        _ -> Error("UID line not found in scutil output")
+        _ -> Error("malformed scutil output")
       }
   }
 }
+
+const uid_key: String = "UID : "
 
 /// Whether the app is running already, asked without launching it.
 ///
