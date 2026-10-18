@@ -168,17 +168,22 @@ pub fn step(
       // is only written once powerd has finished waking. Only the second one
       // lags, and only the first one is needed: is there a Sleep inside the
       // window we just waited?
-      let idle_before = effects.idle_seconds()
       let started = effects.now()
       effects.sleep(duration.seconds(ahead))
       let elapsed = seconds_between(started, effects.now())
-      let idle_after = effects.idle_seconds()
 
-      // Two independent readings, either of which is enough. The log answers
-      // precisely; the frozen counter answers when the log cannot be read at
-      // all. Both err toward ringing, because silence is the worse failure.
+      // The log is the only thing consulted, and it is believed when it
+      // answers. It used to be OR-ed with the frozen-counter heuristic as a
+      // "belt and braces" second opinion, which rang at a user sitting at an
+      // awake machine: the counter cannot tell sleep from hands on a
+      // keyboard, so it disagreed with a log that had the real answer. A
+      // fallback that is consulted when the primary is right is not a
+      // fallback, it is a second opinion with no evidence behind it.
+      //
+      // Silence is still the worse failure, so a log that cannot be read is
+      // treated as a sleep — but a log that says no is believed.
       let slept = case effects.slept_during(started, elapsed) {
-        Ok(slept) -> slept || froze(idle_before, idle_after, elapsed)
+        Ok(slept) -> slept
         Error(reason) -> {
           effects.warn("could not read the power log: " <> reason)
           True
@@ -200,27 +205,6 @@ pub fn step(
       let showed = surface(app, effects)
       Surfaced(wake: wake, showed: showed)
     }
-  }
-}
-
-/// Whether the idle counter stopped keeping pace with the wall clock,
-/// which is what a suspended machine looks like.
-///
-/// This cannot tell a sleeping machine from a busy one — a counter reset by
-/// a hand on the keyboard is as frozen as one reset by sleep — so it is a
-/// fallback for when the power log cannot be read, not the primary answer.
-///
-/// The idle counter advances with wall clock on a running machine and stops
-/// dead across a sleep, so it either kept pace with the wait or it did not.
-/// Two readings and the length of the wait settle it.
-///
-/// A counter that went *backwards* means input arrived, so the machine was
-/// up and someone was using it — that is not a sleep.
-pub fn froze(idle_before: Int, idle_after: Int, elapsed: Int) -> Bool {
-  let advanced = idle_after - idle_before
-  case advanced < 0 {
-    True -> False
-    False -> advanced * 2 < elapsed
   }
 }
 

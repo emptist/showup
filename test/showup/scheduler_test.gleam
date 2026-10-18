@@ -284,36 +284,20 @@ pub fn a_ten_past_midnight_wake_gets_five_minutes_test() {
   scheduler.lead_for(0) |> should.equal(300)
 }
 
-/// A real overnight wake, measured off the machine's own idle counter.
-/// 5.97s before going down, 8.31s after the RTC alarm brought it back
-/// 353 seconds later. A machine awake throughout would have reached 359.
-pub fn a_machine_that_froze_its_idle_counter_was_asleep_test() {
-  scheduler.froze(5, 8, 381) |> should.equal(True)
+/// A log that says the machine never went down is believed, even when the
+/// idle counter looks frozen — which it always does when someone is sitting
+/// at the machine. This was the false positive that rang at a user who never
+/// left the chair.
+pub fn a_log_saying_no_is_believed_over_the_counter_test() {
+  macos.slept_in("", duration.seconds(64 * 60 + 26), 94)
+  |> should.equal(False)
 }
 
-/// An untouched but running machine keeps pace with wall clock exactly, so
-/// its idle counter grows by the full length of the wait.
-pub fn a_machine_whose_idle_counter_kept_pace_was_awake_test() {
-  scheduler.froze(600, 981, 381) |> should.equal(False)
+/// And the same window with a real Sleep in it still rings.
+pub fn a_log_saying_yes_still_wakes_the_person_test() {
+  macos.slept_in(real_sleep, duration.seconds(52 * 60 + 50), 370)
+  |> should.equal(True)
 }
 
-pub fn an_idle_counter_going_backwards_means_someone_touched_it_test() {
-  // Input arrived during the wait, so the machine was up and in use.
-  scheduler.froze(40, 2, 381) |> should.equal(False)
-}
-
-pub fn a_short_wait_with_no_idle_movement_at_all_still_reads_as_asleep_test() {
-  scheduler.froze(6, 6, 60) |> should.equal(True)
-}
-
-pub fn an_idle_counter_that_moved_with_the_wall_clock_reads_as_awake_test() {
-  scheduler.froze(0, 3600, 3600) |> should.equal(False)
-}
-
-pub fn a_machine_in_use_throughout_still_reads_as_asleep_test() {
-  // Hands on the keyboard the whole wait means the counter barely moves,
-  // which looks identical to a freeze. We ring once, the next idle reading
-  // drops below the baseline, and it stops. One ring is the cost of being
-  // wrong this way; silence is the cost of being wrong the other way.
-  scheduler.froze(0, 1, 381) |> should.equal(True)
-}
+const real_sleep: String =
+  "2026-10-19 00:53:02 +0800 Sleep               \tEntering Sleep state due to 'Software Sleep pid=660' 359 secs  "
