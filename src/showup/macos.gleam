@@ -2,7 +2,8 @@ import child_process
 import child_process/stdio
 import gleam/int
 import gleam/list
-import gleam/option.{type Option}
+import gleam/option
+import gleam/result
 import gleam/string
 import gleam/time/duration.{type Duration}
 
@@ -189,6 +190,93 @@ pub fn play(sound: String) -> Result(Nil, String) {
     Ok(_) -> Ok(Nil)
     Error(reason) -> Error(reason)
   }
+}
+
+/// Whether the machine went to sleep at any point inside a wait that began
+/// at `started` and ran for `elapsed` seconds.
+///
+/// Reads the `Sleep` lines out of the power log and asks whether one of them
+/// falls inside that window. It deliberately does **not** look at the `Wake`
+/// line, which is what the earlier attempts keyed on and what made them
+/// unreliable: powerd writes a wake only once it has finished waking, so
+/// asking the instant the VM resumes finds a log that has not caught up yet
+/// and no amount of waiting fixes the first question.
+///
+/// A `Sleep` line has no such problem. It is written when the machine goes
+/// down — minutes before we could possibly ask — so by the time this runs it
+/// is certainly in the log.
+///
+/// An `Error` when the log cannot be read, which the caller treats as a
+/// sleep: see `scheduler.plan_for`.
+pub fn slept_during(started: Duration, elapsed: Int) -> Result(Bool, String) {
+  case exec("/bin/sh", ["-c", sleep_log_query]) {
+    Error(reason) -> Error(reason)
+    Ok(log) -> Ok(slept_in(log, started, elapsed))
+  }
+}
+
+/// `pmset -g log` is several megabytes, so the shell narrows it to the lines
+/// that carry a timestamp before we ever see it.
+const sleep_log_query: String =
+  "/usr/bin/pmset -g log | /usr/bin/grep 'Entering Sleep state' | /usr/bin/tail -20"
+
+/// Whether the newest `Sleep` in the log falls inside the wait.
+///
+/// Times are compared round the clock rather than by subtraction, because a
+/// wait that runs past midnight would otherwise read as a negative.
+pub fn slept_in(log: String, started: Duration, elapsed: Int) -> Bool {
+  let start = whole_seconds(started)
+  case latest_sleep(log) {
+    option.None -> False
+    option.Some(at) -> {
+      let since = case at - start < 0 {
+        True -> at - start + 86_400
+        False -> at - start
+      }
+      since < elapsed
+    }
+  }
+}
+
+/// The time of day of the most recent `Sleep` line, if the log has one.
+fn latest_sleep(log: String) -> option.Option(Int) {
+  log
+  |> string.split(on: "\n")
+  |> list.filter_map(sleep_time)
+  |> list.last
+  |> to_option()
+}
+
+/// Turns the last-entry result into an option, without a combinator for it.
+fn to_option(found: Result(Int, Nil)) -> option.Option(Int) {
+  case found {
+    Ok(at) -> option.Some(at)
+    Error(Nil) -> option.None
+  }
+}
+
+fn sleep_time(line: String) -> Result(Int, Nil) {
+  case string.split(string.trim(line), on: " ") {
+    [_, clock, ..] ->
+      case string.split(clock, on: ":") {
+        [hour, minute, second] ->
+          result.all([int.parse(hour), int.parse(minute), int.parse(second)])
+          |> result.map(fn(parts) {
+            case parts {
+              [h, m, s] -> h * 3600 + m * 60 + s
+              _ -> 0
+            }
+          })
+          |> result.map_error(fn(_) { Nil })
+        _ -> Error(Nil)
+      }
+    _ -> Error(Nil)
+  }
+}
+
+fn whole_seconds(period: Duration) -> Int {
+  let #(seconds, _nanoseconds) = duration.to_seconds_and_nanoseconds(period)
+  seconds
 }
 
 /// Holds three assertions for `seconds` seconds:

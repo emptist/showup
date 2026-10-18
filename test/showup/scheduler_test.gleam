@@ -58,6 +58,7 @@ fn effects_with_assertion(
     schedule_wake: fn(_) { Ok(Nil) },
     keep_awake: asserting,
     idle_seconds: fn() { 600 },
+    slept_during: fn(_, _) { Ok(False) },
     show: showing,
     alarm: alarming,
     at_desktop: fn() { True },
@@ -287,26 +288,26 @@ pub fn a_ten_past_midnight_wake_gets_five_minutes_test() {
 /// 5.97s before going down, 8.31s after the RTC alarm brought it back
 /// 353 seconds later. A machine awake throughout would have reached 359.
 pub fn a_machine_that_froze_its_idle_counter_was_asleep_test() {
-  scheduler.slept_while(5, 8, 381) |> should.equal(True)
+  scheduler.froze(5, 8, 381) |> should.equal(True)
 }
 
 /// An untouched but running machine keeps pace with wall clock exactly, so
 /// its idle counter grows by the full length of the wait.
 pub fn a_machine_whose_idle_counter_kept_pace_was_awake_test() {
-  scheduler.slept_while(600, 981, 381) |> should.equal(False)
+  scheduler.froze(600, 981, 381) |> should.equal(False)
 }
 
 pub fn an_idle_counter_going_backwards_means_someone_touched_it_test() {
   // Input arrived during the wait, so the machine was up and in use.
-  scheduler.slept_while(40, 2, 381) |> should.equal(False)
+  scheduler.froze(40, 2, 381) |> should.equal(False)
 }
 
 pub fn a_short_wait_with_no_idle_movement_at_all_still_reads_as_asleep_test() {
-  scheduler.slept_while(6, 6, 60) |> should.equal(True)
+  scheduler.froze(6, 6, 60) |> should.equal(True)
 }
 
 pub fn an_idle_counter_that_moved_with_the_wall_clock_reads_as_awake_test() {
-  scheduler.slept_while(0, 3600, 3600) |> should.equal(False)
+  scheduler.froze(0, 3600, 3600) |> should.equal(False)
 }
 
 pub fn a_machine_in_use_throughout_still_reads_as_asleep_test() {
@@ -314,5 +315,5 @@ pub fn a_machine_in_use_throughout_still_reads_as_asleep_test() {
   // which looks identical to a freeze. We ring once, the next idle reading
   // drops below the baseline, and it stops. One ring is the cost of being
   // wrong this way; silence is the cost of being wrong the other way.
-  scheduler.slept_while(0, 1, 381) |> should.equal(True)
+  scheduler.froze(0, 1, 381) |> should.equal(True)
 }

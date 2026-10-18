@@ -20,6 +20,10 @@ pub type Effects {
     keep_awake: fn(Int) -> Result(Nil, String),
     /// How long the keyboard and mouse have been untouched.
     idle_seconds: fn() -> Int,
+    /// Whether the machine went to sleep inside a wait beginning at the
+    /// given time of day. Errors are reported as a sleep, because not
+    /// knowing must not mean silence.
+    slept_during: fn(Duration, Int) -> Result(Bool, String),
     show: fn(String) -> macos.Outcome,
     /// Rings until someone touches the keyboard or mouse.
     alarm: fn() -> alarm.Outcome,
@@ -49,6 +53,7 @@ pub fn live(alarm: fn() -> alarm.Outcome) -> Effects {
     schedule_wake: macos.schedule_wake,
     keep_awake: macos.keep_awake,
     idle_seconds: macos.idle_seconds,
+    slept_during: macos.slept_during,
     show: macos.show,
     alarm: alarm,
     at_desktop: macos.at_desktop,
@@ -154,26 +159,33 @@ pub fn step(
         Ok(_) -> Nil
       }
       // Did the machine go down while we waited? The clock cannot say, and
-      // neither can its power log: the log is written by powerd, which has
-      // not necessarily recorded our wake by the time we ask — and asking is
-      // the only moment anyone asks. That race is not fixable by waiting,
-      // because the very first question is the one that loses.
+      // neither can the idle counter, which freezes both across a sleep and
+      // under a pair of hands — so an awake machine with someone at it reads
+      // as a sleeping one, and rings at them.
       //
-      // The keyboard idle counter does answer it. It keeps running only
-      // while the machine is up, so it freezes across a sleep and resumes
-      // where it left off. Measured on a real wake: 5.79s before going
-      // down, 8.09s after coming back 359 seconds later. A machine awake
-      // throughout would have reached 365.
-      //
-      // Both readings and the timing bracket the ONE wait below. Anything
-      // else measures a window the machine was awake for.
+      // The power log can, because a `Sleep` line is written when the
+      // machine goes down, minutes before we could ask, while a `Wake` line
+      // is only written once powerd has finished waking. Only the second one
+      // lags, and only the first one is needed: is there a Sleep inside the
+      // window we just waited?
       let idle_before = effects.idle_seconds()
       let started = effects.now()
       effects.sleep(duration.seconds(ahead))
       let elapsed = seconds_between(started, effects.now())
       let idle_after = effects.idle_seconds()
 
-      case slept_while(idle_before, idle_after, elapsed) {
+      // Two independent readings, either of which is enough. The log answers
+      // precisely; the frozen counter answers when the log cannot be read at
+      // all. Both err toward ringing, because silence is the worse failure.
+      let slept = case effects.slept_during(started, elapsed) {
+        Ok(slept) -> slept || froze(idle_before, idle_after, elapsed)
+        Error(reason) -> {
+          effects.warn("could not read the power log: " <> reason)
+          True
+        }
+      }
+
+      case slept {
         True -> {
           effects.log("the Mac was asleep, waking you up first")
           let spent = rouse(effects)
@@ -191,7 +203,12 @@ pub fn step(
   }
 }
 
-/// Whether the machine was suspended while we waited for `elapsed` seconds.
+/// Whether the idle counter stopped keeping pace with the wall clock,
+/// which is what a suspended machine looks like.
+///
+/// This cannot tell a sleeping machine from a busy one — a counter reset by
+/// a hand on the keyboard is as frozen as one reset by sleep — so it is a
+/// fallback for when the power log cannot be read, not the primary answer.
 ///
 /// The idle counter advances with wall clock on a running machine and stops
 /// dead across a sleep, so it either kept pace with the wait or it did not.
@@ -199,7 +216,7 @@ pub fn step(
 ///
 /// A counter that went *backwards* means input arrived, so the machine was
 /// up and someone was using it — that is not a sleep.
-pub fn slept_while(idle_before: Int, idle_after: Int, elapsed: Int) -> Bool {
+pub fn froze(idle_before: Int, idle_after: Int, elapsed: Int) -> Bool {
   let advanced = idle_after - idle_before
   case advanced < 0 {
     True -> False
