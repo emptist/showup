@@ -16,6 +16,7 @@ pub type Effects {
   Effects(
     now: fn() -> Duration,
     sleep: fn(Duration) -> Nil,
+    keep_awake: fn(Int) -> Result(Nil, String),
     show: fn(String) -> macos.Outcome,
     alarm: fn() -> alarm.Outcome,
     log: fn(String) -> Nil,
@@ -37,6 +38,7 @@ pub fn live(alarm: fn() -> alarm.Outcome) -> Effects {
   Effects(
     now: now,
     sleep: sleep,
+    keep_awake: macos.keep_awake,
     show: macos.show,
     alarm: alarm,
     log: fn(message) { io.println("showup: " <> message) },
@@ -87,6 +89,16 @@ pub fn next_instant(
 
 const resync_after_seconds: Int = 60
 
+/// Seconds for the power assertion. 90s is long enough to cover
+/// `open -a`, `lsappinfo`, any ringing, and a safety margin, while
+/// still short enough that the Mac can sleep again soon after.
+///
+/// The Mac's own idle sleep timer (typically 25-30 min from the last
+/// keyboard or network input) gives plenty of headroom once the wake
+/// returns, so we start the assertion right before surfacing rather
+/// than pre-warming it.
+const keep_awake_seconds: Int = 90
+
 fn whole_seconds(period: Duration) -> Int {
   let #(seconds, _nanoseconds) = duration.to_seconds_and_nanoseconds(period)
   seconds
@@ -109,6 +121,12 @@ pub fn step(
         <> describe_delay(wake.delay),
       )
       effects.sleep(wake.delay)
+      // Power assertion so the Mac does not re-sleep between waking
+      // up from the long sleep and finishing the show + alarm work.
+      case effects.keep_awake(keep_awake_seconds) {
+        Error(reason) -> effects.warn("could not prevent sleep: " <> reason)
+        Ok(_) -> Nil
+      }
       let showed = effects.show(app)
       report(app, showed, effects)
       let rung = ring(effects, showed)

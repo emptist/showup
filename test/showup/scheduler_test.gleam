@@ -46,6 +46,7 @@ fn effects_alarming(
   scheduler.Effects(
     now: fn() { now },
     sleep: fn(_) { Nil },
+    keep_awake: fn(_) { Ok(Nil) },
     show: showing,
     alarm: alarming,
     log: fn(_) { Nil },

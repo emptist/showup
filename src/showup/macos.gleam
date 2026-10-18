@@ -85,3 +85,22 @@ pub fn play(sound: String) -> Result(Nil, String) {
     Error(reason) -> Error(reason)
   }
 }
+
+/// Holds a PreventUserIdleSystemSleep assertion for `seconds` seconds.
+///
+/// Spawns `caffeinate -i -t <seconds>` via `/bin/sh ... &` so the
+/// exec call returns immediately — caffeinate runs in the background,
+/// holds the assertion, and exits by itself after the timeout. No PID
+/// tracking needed, no manual kill. Zero or more concurrent assertions
+/// are fine; macOS counts them independently.
+///
+/// This is called right before surfacing an app and ringing an alarm,
+/// so those operations complete even if the Mac was just woken from
+/// sleep and the idle counter has not reset yet.
+pub fn keep_awake(seconds: Int) -> Result(Nil, String) {
+  let cmd = "/usr/bin/caffeinate -i -t " <> int.to_string(seconds) <> " &"
+  case exec("/bin/sh", ["-c", cmd]) {
+    Ok(_) -> Ok(Nil)
+    Error(reason) -> Error(reason)
+  }
+}
