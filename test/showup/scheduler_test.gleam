@@ -51,6 +51,7 @@ fn effects_alarming(
     slept_during: fn(_, _) { Ok(False) },
     show: showing,
     alarm: alarming,
+    output_volume: fn() { Ok(100) },
     at_desktop: fn() { True },
     log: fn(_) { Nil },
     warn: fn(_) { Nil },

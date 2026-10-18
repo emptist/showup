@@ -26,6 +26,9 @@ pub type Effects {
     show: fn(String) -> macos.Outcome,
     /// Rings until someone touches the keyboard or mouse.
     alarm: fn() -> alarm.Outcome,
+    /// How loud the speakers are, so a mute can be reported before ringing
+    /// rather than discovered by nobody hearing anything.
+    output_volume: fn() -> Result(Int, Nil),
     at_desktop: fn() -> Bool,
     log: fn(String) -> Nil,
     warn: fn(String) -> Nil,
@@ -54,6 +57,7 @@ pub fn live(alarm: fn() -> alarm.Outcome) -> Effects {
     slept_during: macos.slept_during,
     show: macos.show,
     alarm: alarm,
+    output_volume: macos.output_volume,
     at_desktop: macos.at_desktop,
     log: fn(message) {
       io.println("showup: " <> message)
@@ -360,6 +364,8 @@ const sleep_step_seconds: Int = 10
 /// that the window still goes up on the time, and a caller that blindly
 /// slept for the full lead afterwards would put it back where it started.
 fn rouse(effects: Effects) -> Int {
+  check_audible(effects)
+
   process.spawn(fn() {
     let rung = effects.alarm()
     case rung {
@@ -372,6 +378,30 @@ fn rouse(effects: Effects) -> Int {
 
   ensure_at_desktop(effects)
 }
+
+/// Warns when nobody is going to hear the alarm.
+///
+/// The ringback tone plays at the speaker volume, so a laptop that is muted
+/// or turned down rings perfectly and silently. That failure is invisible
+/// from inside the program — the alarm reports that it rang — so it is worth
+/// a warning, which is the only evidence available.
+fn check_audible(effects: Effects) -> Nil {
+  case effects.output_volume() {
+    Error(_) -> Nil
+    Ok(volume) ->
+      case volume < quiet_volume {
+        True ->
+          effects.warn(
+            "the alarm plays at the speaker volume, which is "
+            <> int.to_string(volume)
+            <> " - you will not hear it",
+          )
+        False -> Nil
+      }
+  }
+}
+
+const quiet_volume: Int = 30
 
 /// Program 1. Puts the app in front of whoever is there.
 ///

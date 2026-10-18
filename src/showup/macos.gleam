@@ -184,6 +184,28 @@ fn idle_nanoseconds(report: String) -> Result(Int, Nil) {
   }
 }
 
+/// How loud the speakers are, 0 to 100, or `Error` when it cannot be read.
+///
+/// Checked before ringing, because an alarm that cannot be heard is the worst
+/// possible failure and nothing else in the program would reveal it. A real
+/// 04:00 wake rang 55 times over five minutes and was not heard at all,
+/// because the output volume was 13.
+pub fn output_volume() -> Result(Int, Nil) {
+  case
+    exec("/usr/bin/osascript", [
+      "-e",
+      "output volume of (get volume settings)",
+    ])
+  {
+    Error(_) -> Error(Nil)
+    Ok(answer) ->
+      case answer |> string.trim |> int.parse {
+        Error(_) -> Error(Nil)
+        Ok(volume) -> Ok(volume)
+      }
+  }
+}
+
 /// Plays a sound file to completion, such as one of the system sounds.
 pub fn play(sound: String) -> Result(Nil, String) {
   case exec("/usr/bin/afplay", [sound]) {
