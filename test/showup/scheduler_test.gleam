@@ -186,8 +186,10 @@ pub fn rings_after_surfacing_the_app_test() {
   ))
 }
 
-pub fn stays_quiet_for_an_app_it_could_not_show_test() {
-  // Ringing for an app that is not installed would be noise about nothing.
+pub fn rings_even_for_an_app_it_could_not_show_test() {
+  // Alarm fires BEFORE show, so the user is woken even if the app cannot be
+  // surfaced. Silence would defeat the purpose — the user needs to know
+  // something is supposed to happen.
   let result =
     scheduler.step(
       "Nope",
@@ -203,6 +205,6 @@ pub fn stays_quiet_for_an_app_it_could_not_show_test() {
   |> should.equal(scheduler.Surfaced(
     wake: wake_at(12, 0, 3),
     showed: macos.Failed(reason: "no such app"),
-    rung: alarm.Awake,
+    rung: alarm.Rung(rings: 3),
   ))
 }

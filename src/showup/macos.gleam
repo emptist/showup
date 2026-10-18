@@ -25,7 +25,11 @@ fn exec(executable: String, args: List(String)) -> Result(String, String) {
     |> child_process.args(args)
     |> child_process.run(stdio.capture(True))
   {
-    Ok(child_process.Output(output: output, ..)) -> Ok(output)
+    Ok(child_process.Output(status_code: code, output: output)) ->
+      case code {
+        0 -> Ok(output)
+        _ -> Error("exit code " <> int.to_string(code) <> ": " <> output)
+      }
     Error(err) -> Error(child_process.describe_start_error(err))
   }
 }
@@ -68,7 +72,7 @@ fn is_running(app: String) -> Bool {
 /// either. Zero means either that the user is at the machine or that the
 /// answer could not be read, and either way the caller stays quiet.
 pub fn idle_seconds() -> Int {
-  case exec("/usr/bin/ioreg", ["-r", "-c", "IOHIDSystem", "-d1"]) {
+  case exec("/usr/sbin/ioreg", ["-r", "-c", "IOHIDSystem", "-d1"]) {
     Ok(report) -> parse_idle_seconds(report)
     Error(_) -> 0
   }
@@ -143,10 +147,11 @@ pub fn schedule_wake(datetime: String) -> Result(Nil, String) {
 ///
 /// Before setting a new wake, we cancel all old ones so a stale schedule
 /// does not accidentally wake the Mac at the wrong time. Uses `pmset schedule
-/// cancel wake`, which removes all pending one-shot wake events (but leaves
-/// `pmset repeat` settings alone).
+/// cancelall wake`, which removes ALL pending one-shot wake events including
+/// those set by other processes. `cancelall` is required because `cancel`
+/// alone needs the exact datetime of the event to cancel.
 pub fn cancel_wake() -> Result(Nil, String) {
-  case exec("/usr/bin/pmset", ["schedule", "cancel", "wake"]) {
+  case exec("/usr/bin/pmset", ["schedule", "cancelall", "wake"]) {
     Ok(_) -> Ok(Nil)
     Error(reason) -> Error(reason)
   }

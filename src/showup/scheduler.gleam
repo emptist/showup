@@ -125,13 +125,9 @@ pub fn step(
         <> "), in "
         <> describe_delay(wake.delay),
       )
-      // Cancel any stale one-shot wakes from previous loops, then ask the
-      // kernel to wake the Mac exactly when we need it. pmset schedule is a
-      // one-shot — it fires once and then the kernel forgets about it.
-      case effects.cancel_wake() {
-        Error(reason) -> effects.warn("could not cancel old wake: " <> reason)
-        Ok(_) -> Nil
-      }
+      // Ask the kernel to wake the Mac exactly when we need it. pmset
+      // schedule is a one-shot — it fires once and then the kernel forgets
+      // about it, so there is no need to cancel stale ones beforehand.
       case effects.schedule_wake(datetime) {
         Error(reason) ->
           effects.warn(
@@ -141,66 +137,33 @@ pub fn step(
       }
       effects.sleep(wake.delay)
 
-      // Why we still hold a brief caffeinate assertion
-      //
-      // pmset schedule wake gives us a FullWake at the exact wall-clock time.
-      // When that wake arrives the idle sleep timer resets to the system-wide
-      // value (typically 25-30 min), so the Mac will not re-sleep during the
-      // ~15 seconds it takes to run `open -a`, surfacing the app, and ringing
-      // the alarm. In that sense this assertion is redundant.
-      //
-      // It stays for two edge cases that are real on this machine:
-      //
-      // 1. Power Nap on battery with lid closed: pmset wake may only deliver a
-      //    DarkWake instead of a FullWake. The process gets scheduled but the
-      //    machine never truly "woke up". A short assertion nudges the OS to
-      //    escalate this DarkWake to a real interactive wake so `open -a` and
-      //    the ringback tone actually reach the user.
-      //
-      // 2. pmset misfire (rare but observed in the wild): if pmset wakes a
-      //    little too early or late, the assertion covers up to ~90 seconds
-      //    of drift so we still finish show + alarm before the Mac decides
-      //    idle sleep should kick in again.
-      //
-      // Cost is near-zero: a single `caffeinate -i -t 90` subprocess that the
-      // kernel tracks as one more counter, then forgets about 90 seconds
-      // later. No memory, no CPU, no filesystem.
+      // Ring → Brighten → Wait → Show. The wait between alarm stopping and
+      // the `open -a` call is crucial: the alarm stops when the user touches
+      // the keyboard, but they are still typing their password. If we call
+      // `open -a` during login, macOS queues it and processes it 30+ seconds
+      // later. A short wait after alarm stops lets the login complete first,
+      // so `open -a` fires into an already-active desktop session.
+      let rung = effects.alarm()
+      case rung {
+        alarm.Awake -> effects.log("you were already awake, skipping alarm")
+        alarm.Rung(rings: rings) ->
+          effects.log("rang " <> int.to_string(rings) <> " times to be heard")
+        alarm.Silent(reason: reason) -> effects.warn("could not ring: " <> reason)
+      }
+
       case effects.keep_awake(keep_awake_seconds) {
         Error(reason) -> effects.warn("could not prevent sleep: " <> reason)
         Ok(_) -> Nil
       }
+
+      // Give login screen time to process the user's password input.
+      effects.sleep(duration.seconds(5))
+
       let showed = effects.show(app)
       report(app, showed, effects)
-      let rung = ring(effects, showed)
+
       Surfaced(wake: wake, showed: showed, rung: rung)
     }
-  }
-}
-
-/// Rings the alarm once the app is up, unless it could not be shown at all.
-///
-/// Ringing for an app that is not installed would be noise about nothing.
-fn ring(effects: Effects, showed: macos.Outcome) -> alarm.Outcome {
-  case showed {
-    macos.Failed(reason: reason) -> {
-      effects.warn("not ringing for an app that could not be shown: " <> reason)
-      alarm.Awake
-    }
-    macos.Launched | macos.Surfaced ->
-      case effects.alarm() {
-        alarm.Awake -> {
-          effects.log("you are at the machine, so no alarm")
-          alarm.Awake
-        }
-        alarm.Rung(rings: rings) -> {
-          effects.log("rang " <> int.to_string(rings) <> " times to be heard")
-          alarm.Rung(rings: rings)
-        }
-        alarm.Silent(reason: reason) -> {
-          effects.warn("could not ring: " <> reason)
-          alarm.Silent(reason: reason)
-        }
-      }
   }
 }
 
