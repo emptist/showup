@@ -47,11 +47,6 @@ enum Mac {
         return .success(output)
     }
 
-    // MARK: - The idle counter
-
-    /// How long the keyboard and mouse have been untouched, in whole seconds.
-    ///
-
     // MARK: - Surfacing
 
     /// Whether macOS already knows about an app, so the log can say "surfaced"

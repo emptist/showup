@@ -63,6 +63,17 @@ import Testing
         #expect(alarmRing(AlarmOptions(between: 10, giveUpAfter: 3, playFailures: 3), alarm) == .rung(rings: 3))
     }
 
+    /// The audio device is still coming up, but the user is already at the
+    /// keyboard. Ignoring them until the sound works is the bug this covers.
+    @Test func inputDuringPlayFailuresStopsTheAlarm() {
+        let busy = Result<Void, ShowError>.failure(.unavailable(what: "sound", reason: "busy"))
+        // baseline (readings[0]) is high; after the first failed play, idle drops to 0.
+        let alarm = FakeAlarm(readings: [900, 0], playResults: [busy])
+
+        #expect(alarmRing(AlarmOptions(between: 10, giveUpAfter: 99, playFailures: 40), alarm) == .rung(rings: 0))
+        #expect(alarm.plays == 1)
+    }
+
     @Test func theDefaultsAreTheOnesTheREADMEDescribes() {
         #expect(AlarmOptions().between == 5)
         #expect(AlarmOptions().giveUpAfter == nil)

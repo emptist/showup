@@ -90,8 +90,6 @@ import Testing
         #expect(!machine.didWarn("you will not hear it"))
     }
 
-    // MARK: Waiting for the login window
-
     // MARK: The lead window
 
     @Test func theKernelIsAskedToWakeAheadOfTheTime() {
@@ -116,7 +114,7 @@ import Testing
     @Test func aFailedWakeScheduleIsWarnedAboutButDoesNotStopTheRun() {
         let machine = FakeMachine()
         machine.setClock(0)
-                machine.scheduleWakeFails = true
+        machine.scheduleWakeFails = true
 
         let outcome = step(config(hour: 9), effects: machine.effects, from: 0)
 
@@ -350,7 +348,6 @@ import Testing
         #expect(machine.said("this was a DarkWake, so nothing can be heard or seen"))
         // Phase one still happens: the app is surfaced on time regardless.
         #expect(machine.shownApps == ["Safari"])
-        machine.powerCycle = nil  // the kernel will not say; use the log
     }
 
     /// When the log cannot say, ring. That failure is noise; the other one is
@@ -432,7 +429,6 @@ import Testing
         machine.waitForAlarm()
         #expect(machine.alarmCount == 1)
         #expect(machine.said("could not tell what kind of wake this was, so ringing anyway"))
-        machine.powerCycle = nil  // the kernel will not say; use the log
     }
 
     @Test func aFullWakeRings() {
@@ -441,12 +437,12 @@ import Testing
         machine.setIdleCounter(300)
         machine.sleepsDuringWait = true
         machine.wakeKind = .full
+        machine.powerCycle = nil  // the kernel will not say; use the log
 
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
         machine.waitForAlarm()
         #expect(machine.alarmCount == 1)
-        machine.powerCycle = nil  // the kernel will not say; use the log
     }
 
     @Test func theWakeWeAskedForIsRecordedForTheJudgement() {
@@ -461,7 +457,6 @@ import Testing
 
         // 09:00 minus a one minute lead is the instant the kernel was asked for.
         #expect(machine.requestedAt == 8 * 3_600 + 59 * 60)
-        machine.powerCycle = nil  // the kernel will not say; use the log
     }
 
     // MARK: Degenerate input

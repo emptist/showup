@@ -75,6 +75,9 @@ private func ring(
             failures += 1
             guard failures < options.playFailures else { return .silent(reason: reason.description) }
             effects.sleep(options.between)
+            if answered(idleNow: effects.idleSeconds(), baseline: baseline) {
+                return .rung(rings: rings)
+            }
         }
     }
 }
