@@ -21,9 +21,10 @@ to leave running.
 
 ## Building
 
-The project is written in [Swift](https://swift.org) and targets macOS. No
-external dependencies are required beyond the Swift toolchain that ships with
-Xcode / the Command Line Tools.
+The project is written in [Swift](https://swift.org) and targets macOS. It uses
+swift-tools-version 6.2 and needs a Swift 6.4 toolchain. No external
+dependencies are required beyond the toolchain that ships with Xcode / the
+Command Line Tools.
 
 ```sh
 swift build                    # builds a debug binary
@@ -113,7 +114,11 @@ The bias is toward ringing. A counter that went *backwards* means input
 arrived, so the machine was up and someone was using it. A counter that barely
 moved on a machine that never slept looks identical to a freeze, and costs one
 ring that stops on the next reading — which is the right trade, because the
-alternative is a wake that is theatre.
+alternative is a wake that is theatre. A counter that cannot be read at all is
+treated the same way, for the same reason.
+
+`SleepEvidence` in `Sources/ShowupCore/SleepDetection.swift` is that decision,
+and it is a pure function of three numbers, so all four cases are tested.
 
 > **Why not `pmset -g log`, which does record every sleep and wake?** It was
 > tried, and it fails on a race that cannot be won. The log is written by
@@ -204,13 +209,51 @@ the **wall** clock and checks the deadline each time, which bounds the
 overshoot to one step — ten seconds — whether the machine slept the whole
 way, woke for a moment, or never slept at all.
 
-### Why the idle timer gives us a safe window
+### The idle window, measured rather than assumed
 
-macOS maintains an idle timer that starts from the last keyboard, mouse,
-or network input. A typical laptop is set to sleep after 25–30 minutes of
-idle. The moment the Mac wakes — for any reason at all — that timer is
-reset. So there is roughly half an hour of guaranteed awake time for the
-`open -a`, `lsappinfo`, ringing loop, and the next sleep to be scheduled before the Mac could possibly nod off again.
+macOS maintains idle timers that start from the last keyboard, mouse, or
+network input, and the moment the Mac wakes — for any reason at all — they are
+reset. That reset is what makes a wake work at all, because it buys a window
+of awake time for the `open -a`, the `lsappinfo`, the ringing loop, and the
+scheduling of the next wake.
+
+How long that window is depends on the machine, and it used to be a guess
+here: "a typical laptop is set to sleep after 25–30 minutes". That is right
+often enough to be believed and wrong often enough to matter. So `showup` asks
+the machine, once at startup:
+
+```
+$ pmset -g ps
+Now drawing from 'AC Power'
+$ pmset -g custom
+AC Power:
+ displaysleep         20
+ sleep                25
+ ...
+```
+
+The two halves of `pmset -g custom` disagree, and `pmset -g ps` says which one
+applies — the same Mac above is set to 10 minutes on battery. The display
+timer is the one that matters, because it is the smaller: it is the window in
+which anything `showup` does can be seen or heard. So `showup` logs:
+
+```
+showup: this Mac sleeps on its own after 20m without input on AC power (displaysleep 20m, sleep 25m)
+```
+
+and if that window is shorter than the two minutes `showup` may spend waiting
+for a login, it says so at startup, because a wake can time out with the
+display still dark. When it rings, it also says how long the alarm has to be
+answered:
+
+```
+showup: it has 20m before it sleeps again, so the alarm has to be answered before then
+```
+
+This is the one number that says whether a wake can be completed at all, so
+it is read rather than guessed. `PowerSettings` in
+`Sources/ShowupCore/PowerSettings.swift` is the parsing, and it is tested
+against verbatim `pmset` output from both power sources.
 
 ### No power assertion
 
@@ -302,7 +345,8 @@ through LaunchServices, which brings its windows to the front and gives it
 focus. No permission needs to be granted for this, in Terminal or anywhere
 else.
 
-`showup` also asks `lsappinfo` whether the app was already running, purely so
+`pmset -g custom` and `pmset -g ps` are read once at startup for the idle
+timers; `lsappinfo` is asked whether the app was already running, purely so
 it can report `surfaced` or `launched` accurately rather than always claiming
 to have launched it. That lookup matches the name exactly, so an app macOS
 calls something else, such as System Settings on a version before macOS 13,
@@ -312,41 +356,75 @@ line is affected, never what `showup` does.
 ## Development
 
 ```sh
-swift build                         # build
-.build/debug/showup-tests           # run the test suite
-swift run showup -- -a Safari -t 9:00 --dry-run   # run
+make build                           # swift build
+make test                            # swift test
+make release install                 # optimised build, installed to /usr/local/bin
+swift run showup -a Safari -t 9:00 --dry-run   # run without installing
 ```
+
+`swift test` runs the suite on [swift-testing](https://github.com/swiftlang/swift-testing),
+which is the framework for this toolchain; there is no XCTest anywhere in this
+project. One note for running it by hand: this SwiftPM does not load the
+swift-testing macro plugin on its own, so `make test` passes the plugin path
+explicitly. Under Xcode, or on a toolchain that wires the plugin up, plain
+`swift test` is enough.
 
 Changes to the source only reach an installed `showup` by rebuilding and
-installing again:
+installing again.
 
-```sh
-swift build -c release && install -m 0755 .build/release/showup /usr/local/bin/showup
-```
-
-Times of day and delays are Swift's `Int` seconds rather than home grown
-types, and sleeping is `Thread.sleep(forTimeInterval:)` stepped in ten-second
+Times of day and delays are Swift's `Int` seconds rather than home grown types,
+and sleeping is `Thread.sleep(forTimeInterval:)` stepped in ten second
 wall-clock increments.
 
 All interaction with the outside world goes through Swift's `Foundation`
 `Process`, which spawns `open -a`, `lsappinfo`, `ioreg`, `afplay`, `pmset`,
-`scutil`, and `osascript`. There are no external dependencies beyond the
-Swift toolchain that ships with Xcode / the Command Line Tools.
+`scutil`, and `osascript`. There are no external dependencies beyond the Swift
+toolchain that ships with Xcode / the Command Line Tools.
 
-| Module                 | Role                                                       |
-| ---------------------- | ---------------------------------------------------------- |
-| `Sources/showup/main.swift` | CLI parsing, the scheduler loop, the entry point        |
-| `Sources/ShowupCore/showup_core.swift` | Pure logic: times, scheduling, lead windows, sleep detection, alarm |
+| Module                     | Role                                                       |
+| -------------------------- | ---------------------------------------------------------- |
+| `Sources/ShowupCore/`      | Pure logic: times, scheduling, lead windows, sleep detection, the alarm, the scheduler loop, and the `Effects` port it talks through, plus the machine's measured idle timers |
+| `Sources/ShowupMac/`       | The platform boundary: every command that is run, every parser for its output, and the `Effects.live` that joins them to the core |
+| `Sources/showup/`          | The entry point: argument handling, the schedule preview, the help text |
+| `Tests/ShowupTests/`       | The whole suite, including the scheduler loop against a fake clock and a fake Mac |
 
-The parsers in `Sources/showup/main.swift` are the fragile part and the part
-that has actually broken. `parse_uid` once searched for the substring
-`UID : ` in `scutil` output, which also matches the tail of
+Anything that parses real command output lives in `ShowupMac` rather than in
+the executable, so it can be tested against verbatim captured output, padding
+and nesting included. That is not theoretical: `parseUID` once searched for the
+substring `UID : ` in `scutil` output, which also matches the tail of
 `CGSSessionUniqueSessionUUID : ...`, so it failed on every real input and the
 app was never surfaced at all — while all the tests passed, because every one
-of them supplied a fake. Anything that parses real command output here should
-be tested against verbatim real output, padding and tabs included, not only
-through `Effects`.
+of them supplied a fake. Both that output and a real `ioreg` report are now
+fixtures in `Tests/ShowupTests/ParserTests.swift`.
 
-`LiveEffects` in `Sources/showup/main.swift` is the only place the real
-system clock and macOS are wired in, so the rest of the program is pure and
-the loop is exercised in the tests with a fake clock and a fake machine.
+### The log
+
+`/var/log/showup<timestamp>.log`, and nowhere else. One file per run, named for
+when it started:
+
+```
+showup: logging to /var/log/showup1758290000.log
+```
+
+so a single run can be read on its own, nothing grows without bound, and the
+directory sorts into the order the runs happened in. Each line carries the time
+of day it was written, and each wake records the numbers it was decided from —
+which idle counter reading, how long the wait was — so a wake that rang when it
+should not have can be worked out after the fact rather than guessed at.
+
+The directory is `/var/log` and not `/tmp`, and that is not a style choice.
+`showup` runs as root and `/tmp` is world writable, so a file there is a way for
+an unprivileged user to decide where a root process writes. `/var/log` is root
+owned and the file is opened `O_NOFOLLOW`, so there is nothing there to aim at.
+
+Run without sudo and the file cannot be created; `showup` says so at startup and
+carries on writing to the terminal.
+
+There is no setting to move it. A log that is somewhere different on the night
+somebody needs to read it is not much of a log.
+
+The `Effects` type is the boundary. If you port `showup` to another runtime or
+another OS, the hooks you need are `now`, `currentDate`, `sleep`,
+`scheduleWake`, `idleSeconds`, `show`, `alarm`, `outputVolume`,
+`hasConsoleUser`, `powerSettings`, `log` and `warn`. The scheduler core (and its tests) never call macOS APIs
+directly.
