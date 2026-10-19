@@ -91,9 +91,19 @@ likely sitting at it. Raise the window, and stop. No sound, no waiting, no
 ceremony. This is the whole job, and it is the job most wakes want.
 
 **Program 2 — rouse.** The Mac was asleep and this is the wake we asked for.
-Ring, until a hand reaches the keyboard and the login window goes away. The
-app is launched into the session behind it, so it is in front of you by the
-time the password is in.
+Ring, until a hand reaches the keyboard. Then bring the app up.
+
+In that order, and the order is the point. An earlier version launched the app
+at the target time and rang alongside it, which sounds right and does not
+work: `open` reported success into a session whose screen was locked, and
+nothing was in front afterwards. The activation does not survive the screen
+coming back. So the ringing is not a courtesy before the work — it is what
+tells us there is somebody there, and the app goes up the moment there is.
+
+There is no public API for "is the screen locked": `CGSessionCopyCurrentDictionary`
+has no lock key and returns nothing at all for a process without a window
+server session. The input counter is the signal, and it is already answering
+exactly this question for the alarm.
 
 A `DarkWake` — the machine coming up for network and mail maintenance with
 the screen still off — is deliberately *not* program 2. Nobody can see or hear
@@ -202,10 +212,12 @@ done inside that window:
 | 07:00 – 21:59 | 1 minute | The machine has usually been up for hours, and whoever owns it is at it |
 | 22:00 – 06:59 | 5 minutes | The machine is likely asleep, and a person has to be woken and type a password |
 
-Whatever is left of the window after the rousing is slept out, so the window
-itself still goes up on the time. On this Mac a 09:00 wake asked the kernel for
-08:59, the alarm rang for 17 seconds, and TextEdit came up at 10:35:02 against
-a 10:35:00 target: two seconds, inside one ten second step.
+On a machine that never went down, whatever is left of the window after the
+alarm is slept out, so the window still goes up on the time — a measured run put
+TextEdit in front at 10:35:02 against a 10:35:00 target, two seconds, inside
+one ten second step. When the Mac had been asleep the app goes up when the
+ringing stops instead, which is later than the target if you are away from the
+machine and exactly when you want it if you are not.
 
 ## Waking you up
 

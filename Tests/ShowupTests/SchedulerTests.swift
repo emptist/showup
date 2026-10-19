@@ -195,6 +195,55 @@ import Testing
         #expect(machine.didWarn("login") == false)
     }
 
+    // MARK: Surfacing, and who is there to see it
+
+    /// Measured: launching the app into the session at the target time, while
+    /// the screen was still locked, left it nowhere. So the app goes up when
+    /// the ringing stops, not when the clock says so.
+    @Test func theAppIsSurfacedAfterTheAlarmIsAnswered() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.alarmTakesSeconds = 30
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        #expect(machine.said("rang 3 times to be heard; somebody is back"))
+        #expect(machine.shownApps == ["Safari"])
+        // The window was spent ringing, not slept out in front of a locked screen.
+        #expect(machine.now == 8 * 3_600 + 59 * 60 + 30)
+    }
+
+    /// Nobody is waiting for the clock when they are awake and at the machine.
+    @Test func anAwakeMachineStillGetsTheAppOnTime() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.sleepsDuringWait = false
+        machine.alarmTakesSeconds = 30  // would matter if the alarm ran at all
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        #expect(machine.alarmCount == 0)
+        #expect(machine.now == 9 * 3_600 - dayLeadSeconds + dayLeadSeconds)
+        #expect(machine.shownApps == ["Safari"])
+    }
+
+    /// --no-ring on a sleeping machine has nobody to wait for, so the app goes
+    /// up as soon as the window is up.
+    @Test func noRingOnASleepingMachineSurfacesWithoutWaiting() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+
+        _ = step(config(hour: 9, ring: false), effects: machine.effects, from: 0)
+
+        #expect(machine.alarmCount == 0)
+        #expect(machine.shownApps == ["Safari"])
+        #expect(machine.now == 9 * 3_600 - dayLeadSeconds)
+    }
+
     // MARK: A wake nobody can hear
 
     /// A DarkWake is the machine up for mail with the screen still off. Ringing

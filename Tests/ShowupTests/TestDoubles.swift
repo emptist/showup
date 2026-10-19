@@ -47,6 +47,8 @@ final class FakeMachine: @unchecked Sendable {
     )
     var scheduleWakeFails = false
     var wakeKind: WakeKind = .full
+    /// How long the alarm takes to be answered, in seconds of the fake clock.
+    var alarmTakesSeconds = 0
     var powerCycle: PowerCycle? = PowerCycle(willSleep: true, hasPoweredOn: true)
     private(set) var requestedAt: Int?
 
@@ -73,6 +75,9 @@ final class FakeMachine: @unchecked Sendable {
             alarm: { [self] in
                 self.alarmRan.signal()
                 self.alarmCount += 1
+                // The alarm rings until somebody answers, and only then is
+                // there anybody to show an app to.
+                self.recordSleep(self.alarmTakesSeconds)
                 return .rung(rings: 3)
             },
             outputVolume: { [self] in .success(self.volume) },

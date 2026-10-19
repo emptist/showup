@@ -54,12 +54,20 @@ public func step(_ config: Config, effects: Effects, from now: Int) -> Step {
     let evidence = sleepEvidence(idleBefore: idleBefore, idleAfter: idleAfter, elapsed: elapsed)
     effects.log(evidence.report(idleBefore: idleBefore, idleAfter: idleAfter, elapsed: elapsed))
 
-    var spent = 0
     if evidence.wokeTheUser {
-        spent = rouse(config, effects, requestedAt: requestedAt)
+        // Wait for the person, then surface. Not the other way round.
+        //
+        // Measured: launching the app into the session at the target time, while
+        // the screen was still locked, left it nowhere. `open` reported success
+        // and nothing was in front after the unlock - the activation does not
+        // survive the screen coming back. So the alarm is not a courtesy before
+        // the work; it is the thing that tells us there is somebody there, and
+        // the app goes up the moment there is.
+        rouse(config, effects, requestedAt: requestedAt)
+        return .surfaced(wake: wake, showed: surface(config.app, effects))
     }
-    sleepSeconds(effects, remaining - spent)
 
+    sleepSeconds(effects, remaining)
     return .surfaced(wake: wake, showed: surface(config.app, effects))
 }
 
@@ -73,8 +81,12 @@ private func reportIdleWindow(_ effects: Effects) {
     for warning in report.warnings { effects.warn(warning) }
 }
 
-/// Program 2. Rings until somebody answers, so the login window goes away.
-private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) -> Int {
+/// Program 2. Rings until somebody answers, then returns.
+///
+/// This blocks on purpose. The caller has nothing else to do until there is
+/// somebody to show an app to, and waiting here is what makes the app appear
+/// when they are back rather than at a time they were not there for.
+private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) {
     // The kernel's own account comes first, and when it speaks it decides alone:
     // it says which of the two things actually happened. The power log is only
     // consulted when the kernel would not say.
@@ -85,7 +97,7 @@ private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) -> In
         )
         guard cycle.completedFullWake else {
             effects.log("so nothing completed that a person could answer; not ringing")
-            return 0
+            return
         }
     } else {
         let wake = effects.wakeKind(requestedAt)
@@ -95,7 +107,7 @@ private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) -> In
             // still off. Nobody can hear this, so ringing would be a sound in
             // an empty house, and it would spend the alarm.
             effects.log("this was a DarkWake, so nothing can be heard or seen; not ringing")
-            return 0
+            return
         case .unknown:
             effects.log("could not tell what kind of wake this was, so ringing anyway")
         case .full:
@@ -106,16 +118,11 @@ private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) -> In
     checkAudible(effects)
 
     if config.ring {
-        let alarm = effects.alarm
-        let log = effects.log
-        let warn = effects.warn
-        alarmQueue.async {
-            switch alarm() {
-            case .rung(let rings):
-                log("rang \(rings) times to be heard")
-            case .silent(let reason):
-                warn("could not ring: \(reason)")
-            }
+        switch effects.alarm() {
+        case .rung(let rings):
+            effects.log("rang \(rings) times to be heard; somebody is back")
+        case .silent(let reason):
+            effects.warn("could not ring: \(reason)")
         }
     } else {
         effects.log("--no-ring was given, staying quiet")
@@ -126,8 +133,6 @@ private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) -> In
     if let window = effects.powerSettings()?.idleWindowSeconds {
         effects.log("it has \(describeDelay(window)) before it sleeps again, so the alarm has to be answered before then")
     }
-
-    return 0
 }
 
 /// An alarm nobody can hear is the worst failure this program has, and nothing
@@ -137,10 +142,6 @@ private func checkAudible(_ effects: Effects) {
     guard case .success(let volume) = effects.outputVolume(), volume < quietVolume else { return }
     effects.warn("the alarm plays at the speaker volume, which is \(volume) - you will not hear it")
 }
-
-/// The alarm is unbounded by design, so it gets a queue of its own rather than
-/// a thread on the cooperative pool that it would occupy for as long as it takes.
-private let alarmQueue = DispatchQueue(label: "showup.alarm")
 
 // MARK: - Program 1 (surface)
 
