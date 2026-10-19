@@ -166,6 +166,18 @@ enum Mac {
         return readPowerSettings(ps: ps, custom: custom)
     }()
 
+    /// The kind of wake we are in, read from the power log.
+    ///
+    /// Only the wake lines, narrowed by the shell because `pmset -g log` runs to
+    /// several megabytes and everything showup needs is in the last one.
+    static func currentWakeKind() -> WakeKind {
+        let query = "log | /usr/bin/grep -E ' (Wake|DarkWake) ' | /usr/bin/tail -1"
+        guard case .success(let line) = Mac.run("/bin/sh", ["-c", "/usr/bin/pmset -g \(query)"]) else {
+            return .unknown
+        }
+        return newestWake(line, now: secondsSinceMidnight(Date()))
+    }
+
     static func speakerVolume() -> Result<Int, ShowError> {
         Mac.run("/usr/bin/osascript", ["-e", "output volume of (get volume settings)"]).flatMap { answer in
             let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)

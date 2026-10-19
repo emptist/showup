@@ -25,6 +25,8 @@ public struct Effects: Sendable {
     public var outputVolume: @Sendable () -> Result<Int, ShowError>
     /// How long the Mac is configured to stay awake with nobody touching it.
     public var powerSettings: @Sendable () -> PowerSettings?
+    /// Whether this wake can be heard, or only the machine's own maintenance.
+    public var wakeKind: @Sendable () -> WakeKind
     public var log: @Sendable (String) -> Void
     public var warn: @Sendable (String) -> Void
 
@@ -38,6 +40,7 @@ public struct Effects: Sendable {
         alarm: @escaping @Sendable () -> AlarmOutcome,
         outputVolume: @escaping @Sendable () -> Result<Int, ShowError>,
         powerSettings: @escaping @Sendable () -> PowerSettings?,
+        wakeKind: @escaping @Sendable () -> WakeKind,
         log: @escaping @Sendable (String) -> Void,
         warn: @escaping @Sendable (String) -> Void
     ) {
@@ -50,6 +53,7 @@ public struct Effects: Sendable {
         self.alarm = alarm
         self.outputVolume = outputVolume
         self.powerSettings = powerSettings
+        self.wakeKind = wakeKind
         self.log = log
         self.warn = warn
     }

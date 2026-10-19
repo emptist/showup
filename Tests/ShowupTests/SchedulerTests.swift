@@ -195,6 +195,55 @@ import Testing
         #expect(machine.didWarn("login") == false)
     }
 
+    // MARK: A wake nobody can hear
+
+    /// A DarkWake is the machine up for mail with the screen still off. Ringing
+    /// there is a sound in an empty house, and worse, it spends the alarm.
+    @Test func aDarkWakeDoesNotRing() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.wakeKind = .dark
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        machine.waitForAlarm()
+        #expect(machine.alarmCount == 0)
+        #expect(machine.said("this was a DarkWake, so nothing can be heard or seen"))
+        // Phase one still happens: the app is surfaced on time regardless.
+        #expect(machine.shownApps == ["Safari"])
+    }
+
+    /// When the log cannot say, ring. That failure is noise; the other one is
+    /// a silent wake, which is worse.
+    @Test func anUnknownWakeStillRings() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.wakeKind = .unknown
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        machine.waitForAlarm()
+        #expect(machine.alarmCount == 1)
+        #expect(machine.said("could not tell what kind of wake this was, so ringing anyway"))
+    }
+
+    @Test func aFullWakeRings() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.wakeKind = .full
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        machine.waitForAlarm()
+        #expect(machine.alarmCount == 1)
+    }
+
     // MARK: Degenerate input
 
     @Test func noTimesStopsTheLoop() {

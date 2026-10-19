@@ -46,6 +46,7 @@ final class FakeMachine: @unchecked Sendable {
         source: .ac, displaySleepMinutes: 20, systemSleepMinutes: 25, powerNap: true
     )
     var scheduleWakeFails = false
+    var wakeKind: WakeKind = .full
 
     // Outcomes the tests assert on
     private let alarmRan = DispatchSemaphore(value: 0)
@@ -74,6 +75,7 @@ final class FakeMachine: @unchecked Sendable {
             },
             outputVolume: { [self] in .success(self.volume) },
             powerSettings: { [self] in self.powerSettings },
+            wakeKind: { [self] in self.wakeKind },
             log: { [self] in self.logLines.append($0) },
             warn: { [self] in self.warnings.append($0) }
         )

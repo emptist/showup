@@ -71,6 +71,19 @@ private func reportIdleWindow(_ effects: Effects) {
 
 /// Program 2. Rings until somebody answers, so the login window goes away.
 private func rouse(_ config: Config, _ effects: Effects) -> Int {
+    let wake = effects.wakeKind()
+    if wake == .dark {
+        // A DarkWake is the machine up for network and mail with the screen
+        // still off. Nobody can hear this, so ringing would be a sound in an
+        // empty house, and it would stop the alarm being free to ring again at
+        // a wake somebody can answer.
+        effects.log("this was a DarkWake, so nothing can be heard or seen; not ringing")
+        return 0
+    }
+    if wake == .unknown {
+        effects.log("could not tell what kind of wake this was, so ringing anyway")
+    }
+
     checkAudible(effects)
 
     if config.ring {

@@ -97,7 +97,23 @@ time the password is in.
 
 A `DarkWake` — the machine coming up for network and mail maintenance with
 the screen still off — is deliberately *not* program 2. Nobody can see or hear
-anything during one, and your Mac does it several hundred times a night.
+anything during one, and your Mac does it several hundred times a night. It is
+this Mac's normal state while showup is waiting:
+
+```
+10:32:34  DarkWake   DarkWake from Deep Idle [CDNP] ... 10 secs
+10:33:11  DarkWake   DarkWake from Deep Idle [CDNP] ... 10 secs
+10:33:48  DarkWake   DarkWake from Deep Idle [CDNP] ... 10 secs
+10:34:00  DarkWake   DarkWake from Deep Idle [CDNP] ... 0 secs
+10:34:00  Wake       DarkWake to FullWake from Deep Idle [CDNVA] : due to HID Activity
+```
+
+Four of them in two minutes, from the sleep test that produced this section.
+Only the last pair is a wake a person can answer, and the difference between the
+two lines at 10:34:00 is HID activity promoting a DarkWake to a FullWake. That
+promotion is not guaranteed, and when it does not happen a ring is a sound in an
+empty house — so showup asks the power log which kind of wake it is in, and only
+rings for a FullWake. Phase one, surfacing the app, happens either way.
 
 ### How it knows the difference
 
