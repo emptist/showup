@@ -7,9 +7,6 @@
 public let dayLeadSeconds = 60
 public let nightLeadSeconds = 300
 
-/// After this long missing the plan, stop pretending it is still the plan.
-public let resyncAfterSeconds = 60
-
 /// Below this the alarm is playing into a speaker nobody can hear.
 public let quietVolume = 30
 
@@ -53,13 +50,4 @@ public func upcoming(_ times: [TimeOfDay], from now: Int, count: Int) -> [Wake] 
         cursor = (cursor + wake.delay) % secondsPerDay
     }
     return result
-}
-
-/// Where the next iteration should start counting from.
-///
-/// If the machine slept through a wake the plan is a fiction, so the clock
-/// takes over again rather than the loop chasing an instant it can never reach.
-public func nextInstant(planned: Int, delay: Int, now: Int) -> Int {
-    let target = planned + delay
-    return secondsBetween(target, now) > resyncAfterSeconds ? now : target
 }

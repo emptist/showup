@@ -79,21 +79,6 @@ import Testing
     }
 }
 
-// MARK: - Resyncing
-
-@Suite struct ResyncTests {
-    let planned = TimeOfDay(hour: 12, minute: 0).secondsSinceMidnight
-
-    @Test func keepsThePlannedInstantAfterASlowWake() {
-        #expect(nextInstant(planned: planned, delay: 86_400, now: planned + 2) == planned + 86_400)
-    }
-
-    @Test func givesUpOnThePlanAfterMissingAWake() {
-        let target = planned + 86_400
-        #expect(nextInstant(planned: planned, delay: 86_400, now: target + 90 * 60) == target + 90 * 60)
-    }
-}
-
 // MARK: - Stepped sleeping
 
 @Suite struct SleepSteppingTests {

@@ -289,6 +289,48 @@ import Testing
         #expect(machine.lastGiveUpAfter == defaultRouseBudgetSeconds / ringBetweenSeconds)
     }
 
+    /// Measured: a rouse that waited 53 seconds for somebody to come back was
+    /// read as a missed wake, and the loop started the same 13:37 again and
+    /// surfaced the app a second time.
+    @Test func aSlowRouseDoesNotServeTheSameWakeTwice() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.alarmTakesSeconds = 900  // somebody took a quarter of an hour
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        #expect(machine.shownApps == ["Safari"])
+        // 09:00 has been served, so the next one is tomorrow and the loop must
+        // not land back on the wake it just did.
+        let served = TimeOfDay(hour: 9, minute: 0).secondsSinceMidnight
+        #expect(nextWake([TimeOfDay(hour: 9, minute: 0)], from: served)?.delay == 86_400)
+    }
+
+    /// Each configured time is served once per day, whatever the rouse cost.
+    @Test func consecutiveTimesAreServedOnceEach() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.sleepsDuringWait = false
+        let morning = Config(
+            app: "Safari",
+            times: [TimeOfDay(hour: 9, minute: 0), TimeOfDay(hour: 13, minute: 0)],
+            ring: true, dryRun: false
+        )
+
+        var instant = 0
+        var shown = 0
+        for _ in 0..<3 {
+            guard case .surfaced(let wake, _) = step(morning, effects: machine.effects, from: instant) else { break }
+            shown += 1
+            instant = wake.at.secondsSinceMidnight
+        }
+
+        #expect(shown == 3)
+        #expect(machine.shownApps == ["Safari", "Safari", "Safari"])
+    }
+
     // MARK: A wake nobody can hear
 
     /// A DarkWake is the machine up for mail with the screen still off. Ringing

@@ -8,7 +8,16 @@ public func run(_ config: Config, effects: Effects) {
     while true {
         switch step(config, effects: effects, from: instant) {
         case .surfaced(let wake, _):
-            instant = nextInstant(planned: instant, delay: wake.delay, now: effects.now())
+            // Step past the wake that was just handled, rather than letting a
+            // slow rouse look like a missed one.
+            //
+            // It used to resync to the clock when the plan had fallen more than
+            // a minute behind, which was right when a rouse returned promptly
+            // and a missed wake meant the Mac slept through it. Now that the
+            // rouse waits for somebody to come back, a long wait is the normal
+            // case - and resyncing landed straight back on the wake it had just
+            // served, and the app went up twice.
+            instant = wake.at.secondsSinceMidnight
         case .idle:
             return
         }
