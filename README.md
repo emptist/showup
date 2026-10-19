@@ -21,17 +21,20 @@ to leave running.
 
 ## Building
 
-The project is written in [Gleam](https://gleam.run) and targets Erlang.
+The project is written in [Swift](https://swift.org) and targets macOS. No
+external dependencies are required beyond the Swift toolchain that ships with
+Xcode / the Command Line Tools.
 
 ```sh
-gleam export escript   # writes a self contained escript named `showup`
+swift build                    # builds a debug binary
+swift build -c release         # builds an optimized binary
 ```
 
-That writes a `showup` file in the project directory, which is not tracked by
-git. It is self contained, so putting it somewhere on your `PATH` installs it:
+That writes a `showup` binary in `.build/debug/` (or `.build/release/`), which
+is self contained. Putting it somewhere on your `PATH` installs it:
 
 ```sh
-install -m 0755 showup /usr/local/bin/showup
+install -m 0755 .build/debug/showup /usr/local/bin/showup
 ```
 
 ## Usage
@@ -169,10 +172,10 @@ why this works and what the limits are.
 
 ### What happens when the Mac sleeps
 
-Erlang times `process.sleep` against a **monotonic** clock, and on macOS
-that clock stops while the system is suspended. A sleep of N seconds
-therefore returns after N seconds of *uptime* — every second the Mac spent
-asleep is added to the wait.
+`showup` times its waits against a **wall clock**, because on macOS a
+monotonic clock stops while the system is suspended. A sleep asked for N
+seconds therefore returns after N seconds of *uptime* — every second the Mac
+spent asleep is added to the wait.
 
 This is not a small effect, and it was the last real bug in the program.
 Measured on a genuine overnight wake:
@@ -187,13 +190,10 @@ Measured on a genuine overnight wake:
 And measured directly, with the machine asleep for a known interval:
 
 ```
-$ erl -noshell -eval 'A=erlang:monotonic_time(millisecond),
-    B=erlang:system_time(millisecond), timer:sleep(150000), ...'
-
-  monotonic 150000        what Erlang's timer counted
+  monotonic 150000        what the timer counted
   system    256000        what actually happened
-             ^^^^^^ 106 seconds the machine was asleep, and the timer
-                     never saw them
+         ^^^^^^ 106 seconds the machine was asleep, and the timer
+                 never saw them
 ```
 
 The machine was awake and running for the last five of those minutes. It
@@ -210,8 +210,7 @@ macOS maintains an idle timer that starts from the last keyboard, mouse,
 or network input. A typical laptop is set to sleep after 25–30 minutes of
 idle. The moment the Mac wakes — for any reason at all — that timer is
 reset. So there is roughly half an hour of guaranteed awake time for the
-`open -a`, `lsappinfo`, ringing loop, and the next `process.sleep` to be
-scheduled before the Mac could possibly nod off again.
+`open -a`, `lsappinfo`, ringing loop, and the next sleep to be scheduled before the Mac could possibly nod off again.
 
 ### No power assertion
 
@@ -234,8 +233,8 @@ for as long as the user needs.
 ### Experimental evidence
 
 A 10-round test was run on macOS 15.1. Each round was: `caffeinate -i -t 30`
-(hold 30s, simulate work) followed by `process.sleep(5min)` with no power
-assertion so the Mac could go to sleep. Logged to `/tmp/gleam_sleep_test.log`
+(hold 30s, simulate work) followed by a 5-minute sleep with no power
+assertion so the Mac could go to sleep. Logged to `/tmp/showup_sleep_test.log`
 on 2026-10-18.
 
 **Normal rounds — Mac awake, timer precise:**
@@ -267,10 +266,10 @@ Sleep log (`pmset -g log`) confirms:
                       wake reason: trackpadkeyboard SMC
 ```
 
-The process.sleep had been suspended for roughly 126 minutes of real
-time. When the Mac woke from user input the sleep returned immediately,
-the next round fired, and the Erlang VM kept running without crash,
-without restart, without loss of schedule state.
+The sleep had been suspended for roughly 126 minutes of real time. When the
+Mac woke from user input the sleep returned immediately, the next round fired,
+and the program kept running without crash, without restart, without loss of
+schedule state.
 
 The final 30-minute idle-sleep + wake-again gap in `showup`'s own design
 replaces the 5-minute gap of the test; the mechanism is the same.
@@ -313,61 +312,41 @@ line is affected, never what `showup` does.
 ## Development
 
 ```sh
-gleam run -- -a Safari -t 9:00 --dry-run              # run
-gleam test                                           # test
-gleam format src test                                # format
+swift build                         # build
+.build/debug/showup-tests           # run the test suite
+swift run showup -- -a Safari -t 9:00 --dry-run   # run
 ```
 
-Changes to the source only reach an installed `showup` by exporting and
-installing again, because `gleam test` and `gleam run` use the build in
-`build/` and leave `/usr/local/bin/showup` alone:
+Changes to the source only reach an installed `showup` by rebuilding and
+installing again:
 
 ```sh
-gleam export escript && install -m 0755 showup /usr/local/bin/showup
+swift build -c release && install -m 0755 .build/release/showup /usr/local/bin/showup
 ```
 
-Times of day and delays are `gleam_time`'s `TimeOfDay` and `Duration` rather
-than home grown types, and sleeping is `gleam_erlang`'s `process.sleep`.
+Times of day and delays are Swift's `Int` seconds rather than home grown
+types, and sleeping is `Thread.sleep(forTimeInterval:)` stepped in ten-second
+wall-clock increments.
 
-All interaction with the outside world goes through well-known Hex packages:
+All interaction with the outside world goes through Swift's `Foundation`
+`Process`, which spawns `open -a`, `lsappinfo`, `ioreg`, `afplay`, `pmset`,
+`scutil`, and `osascript`. There are no external dependencies beyond the
+Swift toolchain that ships with Xcode / the Command Line Tools.
 
-| Package          | Used for                                    |
-| ---------------- | ------------------------------------------- |
-| `argv`           | Reading command line arguments              |
-| `child_process`  | Spawning `open -a`, `lsappinfo`, `ioreg`, `afplay`, `pmset`, `scutil` |
-| `gleam_time`     | Time-of-day and duration types              |
-| `gleam_erlang`   | `process.sleep`, Erlang VM bindings         |
+| Module                 | Role                                                       |
+| ---------------------- | ---------------------------------------------------------- |
+| `Sources/showup/main.swift` | CLI parsing, the scheduler loop, the entry point        |
+| `Sources/ShowupCore/showup_core.swift` | Pure logic: times, scheduling, lead windows, sleep detection, alarm |
 
-There is **no handwritten Erlang** anywhere in this project. Everything the
-program needs — reading args, spawning processes, reading clock time — is
-provided by a community package. The only `@external` declaration is a one-line
-call to Erlang's built-in `erlang:halt/1` for clean exit, which does not
-require any `.erl` source file.
+The parsers in `Sources/showup/main.swift` are the fragile part and the part
+that has actually broken. `parse_uid` once searched for the substring
+`UID : ` in `scutil` output, which also matches the tail of
+`CGSSessionUniqueSessionUUID : ...`, so it failed on every real input and the
+app was never surfaced at all — while all the tests passed, because every one
+of them supplied a fake. Anything that parses real command output here should
+be tested against verbatim real output, padding and tabs included, not only
+through `Effects`.
 
-> Why use community packages instead of writing Erlang FFI? Gleam's standard
-> library is deliberately small and excludes platform-specific functionality
-> such as process spawning and command-line argument parsing. A common mistake
-> when Gleam was newer was to hand-write a small Erlang module for these
-> tasks; the ecosystem has now matured and the packages above are the
-> recommended approach per the [Gleam official guide](https://gleam.run/writing-gleam/).
-> Try `packages.gleam.run` before reaching for a custom `@external`.
-
-| Module                   | Role                                                       |
-| ------------------------ | ---------------------------------------------------------- |
-| `showup/cli.gleam`       | Reading and validating the command line                    |
-| `showup/schedule.gleam`  | Times of day, and when the next wake is due                |
-| `showup/scheduler.gleam` | The loop, taking its clock and platform calls as arguments |
-| `showup/alarm.gleam`     | Ringing until the user is awake                            |
-| `showup/macos.gleam`     | `open -a`, `lsappinfo`, `ioreg`, `afplay`, `pmset`, `scutil`, and the log file |
-
-The parsers in `macos.gleam` are the fragile part and the part that has actually
-broken. `parse_uid` once searched for the substring `UID : ` in `scutil`
-output, which also matches the tail of `CGSSessionUniqueSessionUUID : ...`, so it
-failed on every real input and the app was never surfaced at all — while all 78
-tests passed, because every one of them supplied a fake. Anything that parses
-real command output here should be tested against verbatim real output, padding
-and tabs included, not only through `Effects`.
-
-`scheduler.live` is the only place the real system clock and macOS are wired in,
-so the rest of the program is pure and the loop is exercised in the tests with a
-fake clock and a fake machine.
+`LiveEffects` in `Sources/showup/main.swift` is the only place the real
+system clock and macOS are wired in, so the rest of the program is pure and
+the loop is exercised in the tests with a fake clock and a fake machine.
