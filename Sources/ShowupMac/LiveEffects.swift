@@ -6,7 +6,9 @@ extension Effects {
     ///
     /// The alarm is passed in rather than built here so the entry point decides
     /// its options and this stays a plain mapping of hooks to commands.
-    public static func live(alarm: @escaping @Sendable () -> AlarmOutcome) -> Effects {
+    /// - Parameter alarm: takes the ring count at which to give up, or nil to
+    ///   never. The scheduler passes a bound so its loop cannot be stranded.
+    public static func live(alarm: @escaping @Sendable (Int?) -> AlarmOutcome) -> Effects {
         Effects(
             now: { secondsSinceMidnight(Date()) },
             currentDate: { Date() },

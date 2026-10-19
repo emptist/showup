@@ -33,7 +33,7 @@ enum Showup {
             leaveNothingArmed()
             takeTheWakeBackOnExit()
 
-            run(config, effects: .live(alarm: { alarmRing(AlarmOptions(), LiveAlarmEffects()) }))
+            run(config, effects: .live(alarm: { alarmRing(AlarmOptions(giveUpAfter: $0), LiveAlarmEffects()) }))
         }
     }
 

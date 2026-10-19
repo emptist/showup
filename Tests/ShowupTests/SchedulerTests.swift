@@ -244,6 +244,51 @@ import Testing
         #expect(machine.now == 9 * 3_600 - dayLeadSeconds)
     }
 
+    /// rouse now blocks until the alarm is answered, which means an unbounded
+    /// alarm would strand the loop: nobody comes back, and tomorrow's wake is
+    /// never asked for. The bound is the machine's own idle window, measured.
+    @Test func theRingingIsBoundedByTheIdleWindowSoTheLoopContinues() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.powerSettings = PowerSettings(
+            source: .ac, displaySleepMinutes: 20, systemSleepMinutes: 25, powerNap: true
+        )
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        // 20 minutes of window, a ring every five seconds.
+        #expect(machine.lastGiveUpAfter == 20 * 60 / 5)
+    }
+
+    @Test func anUnreadableIdleWindowStillBoundsTheRinging() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.powerSettings = nil
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        #expect(machine.lastGiveUpAfter == defaultRouseBudgetSeconds / ringBetweenSeconds)
+    }
+
+    /// A machine set never to sleep on its own has no window to bound by.
+    @Test func aMachineThatNeverSleepsRingsForItsDefaultBudget() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.powerSettings = PowerSettings(
+            source: .ac, displaySleepMinutes: 0, systemSleepMinutes: 0, powerNap: false
+        )
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        #expect(machine.lastGiveUpAfter == defaultRouseBudgetSeconds / ringBetweenSeconds)
+    }
+
     // MARK: A wake nobody can hear
 
     /// A DarkWake is the machine up for mail with the screen still off. Ringing

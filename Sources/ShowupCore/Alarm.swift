@@ -33,6 +33,10 @@ public protocol AlarmEffects: Sendable {
 public let ringBetweenSeconds = 5
 public let defaultPlayFailures = 40
 
+/// How long to keep ringing when the machine's own idle timers cannot be read.
+/// Long enough to be woken by, short enough that the loop is not stranded.
+public let defaultRouseBudgetSeconds = 15 * 60
+
 public let ringbackTone = """
     /System/Library/Components/CoreAudio.component/Contents/SharedSupport/\
     SystemSounds/facetime/multiway_invitation.caf

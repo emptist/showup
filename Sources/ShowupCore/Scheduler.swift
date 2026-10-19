@@ -118,9 +118,17 @@ private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) {
     checkAudible(effects)
 
     if config.ring {
-        switch effects.alarm() {
+        // Bounded, or the loop below is stranded: nobody comes back, the alarm
+        // rings for ever, and tomorrow's wake is never asked for. The bound is
+        // the machine's own idle window, after which the display sleeps anyway
+        // and further ringing achieves nothing.
+        let window = effects.powerSettings()?.idleWindowSeconds ?? defaultRouseBudgetSeconds
+        let rings = max(1, window / ringBetweenSeconds)
+        switch effects.alarm(rings) {
         case .rung(let rings):
-            effects.log("rang \(rings) times to be heard; somebody is back")
+            effects.log(
+                "rang \(rings) times to be heard; somebody is back"
+            )
         case .silent(let reason):
             effects.warn("could not ring: \(reason)")
         }

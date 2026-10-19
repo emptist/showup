@@ -239,6 +239,13 @@ sound off completely.
 `afplay` cannot play mp3, so a sound of your own would need to be a wav, aiff,
 caf or m4a rather than an mp3.
 
+The alarm stops when it is answered, and it does not ring for ever. It gives up
+when the machine's own idle window runs out — measured with `pmset -g custom`,
+not assumed — because past that point the display is asleep anyway and further
+ringing achieves nothing. That bound is also what stops the scheduler being
+stranded: it waits for the ringing to finish before bringing the app up, so an
+unbounded alarm would mean tomorrow's wake was never asked for.
+
 ## While the Mac is asleep
 
 `showup` handles Mac sleep correctly. The design is: **let the Mac sleep

@@ -49,6 +49,7 @@ final class FakeMachine: @unchecked Sendable {
     var wakeKind: WakeKind = .full
     /// How long the alarm takes to be answered, in seconds of the fake clock.
     var alarmTakesSeconds = 0
+    private(set) var lastGiveUpAfter: Int?
     var powerCycle: PowerCycle? = PowerCycle(willSleep: true, hasPoweredOn: true)
     private(set) var requestedAt: Int?
 
@@ -72,7 +73,8 @@ final class FakeMachine: @unchecked Sendable {
             scheduleWake: { [self] in self.recordWakeRequest($0) },
             idleSeconds: { [self] in self.readIdle() },
             show: { [self] app in self.recordShow(app) },
-            alarm: { [self] in
+            alarm: { [self] giveUpAfter in
+                self.lastGiveUpAfter = giveUpAfter
                 self.alarmRan.signal()
                 self.alarmCount += 1
                 // The alarm rings until somebody answers, and only then is

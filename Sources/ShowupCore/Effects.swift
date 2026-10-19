@@ -19,8 +19,8 @@ public struct Effects: Sendable {
     public var idleSeconds: @Sendable () -> Int?
     /// Surfaces the app, launching it if it is not running.
     public var show: @Sendable (String) -> ShowOutcome
-    /// Rings until somebody answers. Runs on its own queue.
-    public var alarm: @Sendable () -> AlarmOutcome
+    /// Rings until somebody answers, or until `giveUpAfter` rings have gone by.
+    public var alarm: @Sendable (Int?) -> AlarmOutcome
     /// Speaker volume, 0 to 100.
     public var outputVolume: @Sendable () -> Result<Int, ShowError>
     /// How long the Mac is configured to stay awake with nobody touching it.
@@ -40,7 +40,7 @@ public struct Effects: Sendable {
         scheduleWake: @escaping @Sendable (Int) -> Result<Void, ShowError>,
         idleSeconds: @escaping @Sendable () -> Int?,
         show: @escaping @Sendable (String) -> ShowOutcome,
-        alarm: @escaping @Sendable () -> AlarmOutcome,
+        alarm: @escaping @Sendable (Int?) -> AlarmOutcome,
         outputVolume: @escaping @Sendable () -> Result<Int, ShowError>,
         powerSettings: @escaping @Sendable () -> PowerSettings?,
         wakeKind: @escaping @Sendable (Int?) -> WakeKind,
