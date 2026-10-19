@@ -17,7 +17,7 @@ extension Effects {
             alarm: alarm,
             outputVolume: { Mac.speakerVolume() },
             powerSettings: { Mac.configuredPowerSettings },
-            wakeKind: { Mac.currentWakeKind() },
+            wakeKind: { Mac.currentWakeKind(requestedAt: $0) },
             log: { Log.write($0) },
             warn: { Log.write("WARNING \($0)", to: .standardError) }
         )

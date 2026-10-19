@@ -47,6 +47,7 @@ final class FakeMachine: @unchecked Sendable {
     )
     var scheduleWakeFails = false
     var wakeKind: WakeKind = .full
+    private(set) var requestedAt: Int?
 
     // Outcomes the tests assert on
     private let alarmRan = DispatchSemaphore(value: 0)
@@ -75,7 +76,7 @@ final class FakeMachine: @unchecked Sendable {
             },
             outputVolume: { [self] in .success(self.volume) },
             powerSettings: { [self] in self.powerSettings },
-            wakeKind: { [self] in self.wakeKind },
+            wakeKind: { [self] in self.recordWakeKind($0) },
             log: { [self] in self.logLines.append($0) },
             warn: { [self] in self.warnings.append($0) }
         )
@@ -95,6 +96,11 @@ final class FakeMachine: @unchecked Sendable {
         return scheduleWakeFails
             ? .failure(.failed(command: "pmset", status: 1, detail: "not permitted"))
             : .success(())
+    }
+
+    private func recordWakeKind(_ requestedAt: Int?) -> WakeKind {
+        lock.withLock { self.requestedAt = requestedAt }
+        return wakeKind
     }
 
     private func readIdle() -> Int? {

@@ -26,7 +26,8 @@ public struct Effects: Sendable {
     /// How long the Mac is configured to stay awake with nobody touching it.
     public var powerSettings: @Sendable () -> PowerSettings?
     /// Whether this wake can be heard, or only the machine's own maintenance.
-    public var wakeKind: @Sendable () -> WakeKind
+    /// Takes the instant the RTC alarm was set for, which settles it.
+    public var wakeKind: @Sendable (Int?) -> WakeKind
     public var log: @Sendable (String) -> Void
     public var warn: @Sendable (String) -> Void
 
@@ -40,7 +41,7 @@ public struct Effects: Sendable {
         alarm: @escaping @Sendable () -> AlarmOutcome,
         outputVolume: @escaping @Sendable () -> Result<Int, ShowError>,
         powerSettings: @escaping @Sendable () -> PowerSettings?,
-        wakeKind: @escaping @Sendable () -> WakeKind,
+        wakeKind: @escaping @Sendable (Int?) -> WakeKind,
         log: @escaping @Sendable (String) -> Void,
         warn: @escaping @Sendable (String) -> Void
     ) {

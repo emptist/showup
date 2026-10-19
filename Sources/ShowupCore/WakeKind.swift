@@ -19,6 +19,10 @@ public enum WakeKind: Equatable, Sendable {
 /// How far back a wake entry may be and still be counted as this wake.
 public let wakeEvidenceWindowSeconds = 90
 
+/// How far the RTC alarm may land from the instant it was asked for. The
+/// kernel is not a clock, and a few seconds either way is normal.
+public let rtcWakeToleranceSeconds = 20
+
 /// The kind of the wake we are in the middle of.
 ///
 /// The log is written by powerd, which has not necessarily recorded our wake by
@@ -26,9 +30,22 @@ public let wakeEvidenceWindowSeconds = 90
 /// wake in the log is older than the window, the honest answer is `unknown`,
 /// which rings rather than going quiet. That is the direction that fails into
 /// noise instead of into silence.
-public func newestWake(_ log: String, now: Int) -> WakeKind {
+/// - Parameter requestedAt: the wall clock instant the RTC alarm was set for,
+///   which is the one wake this wake cannot be anything but.
+public func newestWake(_ log: String, now: Int, requestedAt: Int? = nil) -> WakeKind {
     guard let newest = latestWakeEvent(log) else { return .unknown }
     guard secondsBetween(newest.at, now) <= wakeEvidenceWindowSeconds else { return .unknown }
+
+    // A DarkWake at the instant we asked for is our wake whatever powerd chose
+    // to call it. The RTC alarm reaches the machine as a DarkWake first and is
+    // promoted to a FullWake only if something - usually a hand - wakes the
+    // user. Suppressing that on the strength of the label would lose the alarm
+    // on the exact wake it exists for, which is the one failure not to have.
+    if newest.kind == .dark, let requestedAt,
+        secondsBetween(requestedAt, newest.at) <= rtcWakeToleranceSeconds
+    {
+        return .full
+    }
     return newest.kind
 }
 

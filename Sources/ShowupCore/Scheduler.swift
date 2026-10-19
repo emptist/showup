@@ -37,11 +37,15 @@ public func step(_ config: Config, effects: Effects, from now: Int) -> Step {
     let datetime = pmsetDatetime(now: effects.currentDate(), secondsFromNow: ahead)
     effects.log("waking at \(wake.at.rendered) (pmset \(datetime)), in \(describeDelay(wake.delay))")
 
+    let started = effects.now()
+    // The instant the RTC alarm is set for. It settles whether a DarkWake was
+    // ours or the machine's own, which the label alone cannot.
+    let requestedAt = (started + ahead) % secondsPerDay
+
     if case .failure(let reason) = effects.scheduleWake(ahead) {
         effects.warn("could not schedule wake (did you run with sudo?): \(reason)")
     }
 
-    let started = effects.now()
     let idleBefore = effects.idleSeconds()
     sleepSeconds(effects, ahead)
     let elapsed = secondsBetween(started, effects.now())
@@ -52,7 +56,7 @@ public func step(_ config: Config, effects: Effects, from now: Int) -> Step {
 
     var spent = 0
     if evidence.wokeTheUser {
-        spent = rouse(config, effects)
+        spent = rouse(config, effects, requestedAt: requestedAt)
     }
     sleepSeconds(effects, remaining - spent)
 
@@ -70,8 +74,8 @@ private func reportIdleWindow(_ effects: Effects) {
 }
 
 /// Program 2. Rings until somebody answers, so the login window goes away.
-private func rouse(_ config: Config, _ effects: Effects) -> Int {
-    let wake = effects.wakeKind()
+private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) -> Int {
+    let wake = effects.wakeKind(requestedAt)
     if wake == .dark {
         // A DarkWake is the machine up for network and mail with the screen
         // still off. Nobody can hear this, so ringing would be a sound in an

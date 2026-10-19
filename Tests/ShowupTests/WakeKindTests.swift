@@ -51,6 +51,45 @@ private func at(_ h: Int, _ m: Int, _ s: Int) -> Int { h * 3_600 + m * 60 + s }
         #expect(newestWake("2026-10-19 10:34:00 +0800 Sleep  Entering Sleep state", now: at(10, 34, 1)) == .unknown)
     }
 
+    /// The RTC alarm reaches the machine as a DarkWake and is promoted to a
+    /// FullWake only if a hand wakes the user. Suppressing that on the strength
+    /// of the label would lose the alarm on the exact wake it exists for.
+    @Test func aDarkWakeAtTheInstantWeAskedForIsStillOurWake() {
+        // The log as it stood at 10:34:00, with only the DarkWake and no
+        // promotion, because nobody had touched anything yet.
+        let unpromoted = realWakeLog
+            .split(separator: "\n")
+            .filter { !$0.contains("DarkWake to FullWake") }
+            .joined(separator: "\n")
+        let ourAlarm = at(10, 34, 0)
+
+        #expect(newestWake(unpromoted, now: at(10, 34, 1)) == .dark)
+        #expect(newestWake(unpromoted, now: at(10, 34, 1), requestedAt: ourAlarm) == .full)
+    }
+
+    /// A maintenance DarkWake that happens to fall near our request is still
+    /// not ours, because it is nowhere near the instant we asked for.
+    @Test func aDarkWakeWellBeforeOurAlarmIsNotOurs() {
+        let maintenance = realWakeLog
+            .split(separator: "\n")
+            .filter { !$0.contains("10:34:00") }
+            .joined(separator: "\n")
+        #expect(
+            newestWake(maintenance, now: at(10, 33, 48), requestedAt: at(10, 34, 0)) == .dark
+        )
+    }
+
+    /// Without the request there is nothing to compare against, so the label
+    /// stands and the alarm is suppressed. Failing towards silence only when
+    /// there is genuinely no evidence of an alarm is the correct way round.
+    @Test func withNoRequestRecordedTheLabelStands() {
+        let unpromoted = realWakeLog
+            .split(separator: "\n")
+            .filter { !$0.contains("DarkWake to FullWake") }
+            .joined(separator: "\n")
+        #expect(newestWake(unpromoted, now: at(10, 34, 1), requestedAt: nil) == .dark)
+    }
+
     /// Only the wake lines are evidence. An Assertions or Sleep line in the
     /// same log must not be mistaken for one.
     @Test func otherEventsAreNotWakes() {

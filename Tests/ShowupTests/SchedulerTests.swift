@@ -244,6 +244,19 @@ import Testing
         #expect(machine.alarmCount == 1)
     }
 
+    @Test func theWakeWeAskedForIsRecordedForTheJudgement() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.wakeKind = .dark
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        // 09:00 minus a one minute lead is the instant the kernel was asked for.
+        #expect(machine.requestedAt == 8 * 3_600 + 59 * 60)
+    }
+
     // MARK: Degenerate input
 
     @Test func noTimesStopsTheLoop() {

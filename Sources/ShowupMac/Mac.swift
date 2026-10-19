@@ -170,12 +170,12 @@ enum Mac {
     ///
     /// Only the wake lines, narrowed by the shell because `pmset -g log` runs to
     /// several megabytes and everything showup needs is in the last one.
-    static func currentWakeKind() -> WakeKind {
+    static func currentWakeKind(requestedAt: Int?) -> WakeKind {
         let query = "log | /usr/bin/grep -E ' (Wake|DarkWake) ' | /usr/bin/tail -1"
         guard case .success(let line) = Mac.run("/bin/sh", ["-c", "/usr/bin/pmset -g \(query)"]) else {
             return .unknown
         }
-        return newestWake(line, now: secondsSinceMidnight(Date()))
+        return newestWake(line, now: secondsSinceMidnight(Date()), requestedAt: requestedAt)
     }
 
     static func speakerVolume() -> Result<Int, ShowError> {

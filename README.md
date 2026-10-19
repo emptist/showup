@@ -109,11 +109,20 @@ this Mac's normal state while showup is waiting:
 ```
 
 Four of them in two minutes, from the sleep test that produced this section.
-Only the last pair is a wake a person can answer, and the difference between the
-two lines at 10:34:00 is HID activity promoting a DarkWake to a FullWake. That
-promotion is not guaranteed, and when it does not happen a ring is a sound in an
-empty house — so showup asks the power log which kind of wake it is in, and only
-rings for a FullWake. Phase one, surfacing the app, happens either way.
+A manual sleep does not stay asleep: it goes down for 27 seconds, up for 10,
+down again, and only settles when the RTC alarm lands.
+
+The last pair is what matters. The RTC alarm reaches the machine as a DarkWake
+too, and is promoted to a FullWake only if something — usually a hand — wakes
+the user. In that test the promotion was `due to HID Activity`, which was the
+person typing their password. It is not guaranteed, and when it does not happen
+a ring is a sound in an empty house.
+
+So showup does not trust the label on its own. It knows the instant it asked the
+kernel to wake the machine, and a DarkWake *at that instant* is its own wake
+whatever powerd chose to call it. The label only suppresses the ring for a
+DarkWake that is nowhere near the request — one of the machine's own. Phase one,
+surfacing the app, happens either way.
 
 ### How it knows the difference
 
