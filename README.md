@@ -118,11 +118,38 @@ the user. In that test the promotion was `due to HID Activity`, which was the
 person typing their password. It is not guaranteed, and when it does not happen
 a ring is a sound in an empty house.
 
-So showup does not trust the label on its own. It knows the instant it asked the
-kernel to wake the machine, and a DarkWake *at that instant* is its own wake
-whatever powerd chose to call it. The label only suppresses the ring for a
-DarkWake that is nowhere near the request — one of the machine's own. Phase one,
-surfacing the app, happens either way.
+### Asking the kernel, rather than reading a log
+
+The paragraph above is what showup used to do, and reading it should make the
+problem obvious: it was deciding whether a person was there by parsing a log
+that another process writes asynchronously, on a single occasion, and hoping
+the line had landed.
+
+There is an API for this. `IORegisterForSystemPower` is documented to send:
+
+- `kIOMessageSystemWillSleep` "at the point the system is initiating a
+  **non-abortable** sleep"
+- `kIOMessageSystemHasPoweredOn` "at **wakeup completion** time, after all
+  device drivers and hardware have handled the wakeup event"
+
+A DarkWake is abortable and never completes a wake, so it produces neither.
+That is the kernel making the distinction directly, and it cannot lose a race
+with powerd because it is not powerd. `kIOMessageSystemWillSleep` has to be
+acknowledged with `IOAllowPowerChange` — without it the sleep stalls for thirty
+seconds, which Apple says outright — and the wake messages must not be.
+
+The notifications arrive on a dispatch queue, because showup blocks in
+`Thread.sleep` and nothing is ever going to service a run loop.
+
+So the order is: the kernel decides, and the power log is only consulted if
+the kernel would not register at all. showup says which path it took at
+startup. Phase one, surfacing the app, happens either way.
+
+Along the way this killed a plausible idea. `kIOPMSleepWakeUUIDKey` is
+documented as being removed "at the completion of a system wakeup", which
+would have been a registry-property answer with no callback at all. Read
+directly on this Mac it is present on a machine that is plainly awake, so it
+is not that signal, and it was not used.
 
 ### How it knows the difference
 

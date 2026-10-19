@@ -18,6 +18,7 @@ extension Effects {
             outputVolume: { Mac.speakerVolume() },
             powerSettings: { Mac.configuredPowerSettings },
             wakeKind: { Mac.currentWakeKind(requestedAt: $0) },
+            powerCycle: { PowerNotifications.shared?.takeCycle() },
             log: { Log.write($0) },
             warn: { Log.write("WARNING \($0)", to: .standardError) }
         )

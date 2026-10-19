@@ -47,6 +47,7 @@ final class FakeMachine: @unchecked Sendable {
     )
     var scheduleWakeFails = false
     var wakeKind: WakeKind = .full
+    var powerCycle: PowerCycle? = PowerCycle(willSleep: true, hasPoweredOn: true)
     private(set) var requestedAt: Int?
 
     // Outcomes the tests assert on
@@ -77,6 +78,7 @@ final class FakeMachine: @unchecked Sendable {
             outputVolume: { [self] in .success(self.volume) },
             powerSettings: { [self] in self.powerSettings },
             wakeKind: { [self] in self.recordWakeKind($0) },
+            powerCycle: { [self] in self.powerCycle },
             log: { [self] in self.logLines.append($0) },
             warn: { [self] in self.warnings.append($0) }
         )

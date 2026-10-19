@@ -23,6 +23,13 @@ enum Showup {
             printSchedule(config)
         case .show(let config):
             announceLog()
+            // Which of the two detection paths this run will use is worth
+            // saying up front: the kernel's own notifications, or the power log.
+            Log.write(
+                PowerNotifications.shared == nil
+                    ? "no kernel sleep and wake notifications, falling back to the power log"
+                    : "listening for the kernel's own sleep and wake notifications"
+            )
             run(config, effects: .live(alarm: { alarmRing(AlarmOptions(), LiveAlarmEffects()) }))
         }
     }

@@ -205,6 +205,7 @@ import Testing
         machine.setIdleCounter(300)
         machine.sleepsDuringWait = true
         machine.wakeKind = .dark
+        machine.powerCycle = nil  // the kernel will not say; the log is the fallback
 
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
@@ -213,22 +214,89 @@ import Testing
         #expect(machine.said("this was a DarkWake, so nothing can be heard or seen"))
         // Phase one still happens: the app is surfaced on time regardless.
         #expect(machine.shownApps == ["Safari"])
+        machine.powerCycle = nil  // the kernel will not say; use the log
     }
 
     /// When the log cannot say, ring. That failure is noise; the other one is
     /// a silent wake, which is worse.
+    /// The kernel says a DarkWake never completes a wake, so no ring. This is
+    /// the documented behaviour rather than a label read out of a log.
+    @Test func aKernelCycleThatDidNotCompleteDoesNotRing() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.powerCycle = PowerCycle(willSleep: true, hasPoweredOn: false)
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        machine.waitForAlarm()
+        #expect(machine.alarmCount == 0)
+        #expect(machine.said("no completed wake"))
+        #expect(machine.shownApps == ["Safari"])
+    }
+
+    /// A completed wake from the kernel is the one thing that settles it.
+    @Test func aKernelCycleThatCompletedRingsWithoutConsultingTheLog() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.powerCycle = PowerCycle(willSleep: true, hasPoweredOn: true)
+        machine.wakeKind = .dark  // the log says DarkWake; the kernel disagrees
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        machine.waitForAlarm()
+        #expect(machine.alarmCount == 1)
+        #expect(machine.said("the wake completed"))
+    }
+
+    /// No sleep at all announced means the counter lied, and nobody was asleep
+    /// to be woken.
+    @Test func noSleepAnnouncedDoesNotRing() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.powerCycle = PowerCycle()
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        machine.waitForAlarm()
+        #expect(machine.alarmCount == 0)
+    }
+
+    /// When the kernel would not say, the old evidence decides.
+    @Test func withoutTheKernelThePowerLogStillDecides() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.powerCycle = nil
+        machine.wakeKind = .dark
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        machine.waitForAlarm()
+        #expect(machine.alarmCount == 0)
+        #expect(machine.said("this was a DarkWake"))
+    }
+
     @Test func anUnknownWakeStillRings() {
         let machine = FakeMachine()
         machine.setClock(0)
         machine.setIdleCounter(300)
         machine.sleepsDuringWait = true
         machine.wakeKind = .unknown
+        machine.powerCycle = nil
 
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
         machine.waitForAlarm()
         #expect(machine.alarmCount == 1)
         #expect(machine.said("could not tell what kind of wake this was, so ringing anyway"))
+        machine.powerCycle = nil  // the kernel will not say; use the log
     }
 
     @Test func aFullWakeRings() {
@@ -242,6 +310,7 @@ import Testing
 
         machine.waitForAlarm()
         #expect(machine.alarmCount == 1)
+        machine.powerCycle = nil  // the kernel will not say; use the log
     }
 
     @Test func theWakeWeAskedForIsRecordedForTheJudgement() {
@@ -250,11 +319,13 @@ import Testing
         machine.setIdleCounter(300)
         machine.sleepsDuringWait = true
         machine.wakeKind = .dark
+        machine.powerCycle = nil
 
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
         // 09:00 minus a one minute lead is the instant the kernel was asked for.
         #expect(machine.requestedAt == 8 * 3_600 + 59 * 60)
+        machine.powerCycle = nil  // the kernel will not say; use the log
     }
 
     // MARK: Degenerate input

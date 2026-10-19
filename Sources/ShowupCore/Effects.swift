@@ -28,6 +28,8 @@ public struct Effects: Sendable {
     /// Whether this wake can be heard, or only the machine's own maintenance.
     /// Takes the instant the RTC alarm was set for, which settles it.
     public var wakeKind: @Sendable (Int?) -> WakeKind
+    /// What the kernel announced, or nil when the kernel would not say.
+    public var powerCycle: @Sendable () -> PowerCycle?
     public var log: @Sendable (String) -> Void
     public var warn: @Sendable (String) -> Void
 
@@ -42,6 +44,7 @@ public struct Effects: Sendable {
         outputVolume: @escaping @Sendable () -> Result<Int, ShowError>,
         powerSettings: @escaping @Sendable () -> PowerSettings?,
         wakeKind: @escaping @Sendable (Int?) -> WakeKind,
+        powerCycle: @escaping @Sendable () -> PowerCycle?,
         log: @escaping @Sendable (String) -> Void,
         warn: @escaping @Sendable (String) -> Void
     ) {
@@ -55,6 +58,7 @@ public struct Effects: Sendable {
         self.outputVolume = outputVolume
         self.powerSettings = powerSettings
         self.wakeKind = wakeKind
+        self.powerCycle = powerCycle
         self.log = log
         self.warn = warn
     }
