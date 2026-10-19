@@ -434,10 +434,33 @@ Times of day and delays are Swift's `Int` seconds rather than home grown types,
 and sleeping is `Thread.sleep(forTimeInterval:)` stepped in ten second
 wall-clock increments.
 
-All interaction with the outside world goes through Swift's `Foundation`
-`Process`, which spawns `open -a`, `lsappinfo`, `ioreg`, `afplay`, `pmset`,
-`scutil`, and `osascript`. There are no external dependencies beyond the Swift
-toolchain that ships with Xcode / the Command Line Tools.
+## What talks to macOS, and how
+
+Almost nothing shells out. Anything with a documented API uses it, because the
+API answers and a log parser infers:
+
+| Question | Answered by |
+| --- | --- |
+| Did the Mac sleep, and did the wake complete? | `IORegisterForSystemPower` |
+| Is this wake one somebody can hear? | the same, or the power log if it would not register |
+| Who is at the console? | `SCDynamicStoreCopyConsoleUser` |
+| How long since anyone touched anything? | `CGEventSource.secondsSinceLastEventType` |
+| How loud is the speaker? | CoreAudio `kAudioDevicePropertyVolumeScalar` |
+| Wake the Mac at a time | `IOPMSchedulePowerEvent`, taken back with `IOPMCancelScheduledPowerEvent` |
+
+Four things still spawn a process, and each for a stated reason:
+
+- **`pmset -g custom`** — the configured idle timers.
+  `IOPSCopyPowerSettingsInfo` and `IOPMCopyCustomPowerProfiles` are not in the
+  SDK, so there is no documented way to read them.
+- **`launchctl asuser` + `open -a`** — surfacing an app. `NSWorkspace` and
+  `NSRunningApplication` are bound to a window server session, and showup runs
+  as root in none.
+- **`lsappinfo info`** — whether an app is already running, for the same reason.
+- **`afplay`** — playing a `.caf` file. `AudioServicesPlaySystemSound` takes a
+  `SystemSoundID` rather than a path, which is a different thing.
+
+There are no external dependencies beyond the Swift toolchain.
 
 | Module                     | Role                                                       |
 | -------------------------- | ---------------------------------------------------------- |
@@ -447,13 +470,18 @@ toolchain that ships with Xcode / the Command Line Tools.
 | `Tests/ShowupTests/`       | The whole suite, including the scheduler loop against a fake clock and a fake Mac |
 
 Anything that parses real command output lives in `ShowupMac` rather than in
-the executable, so it can be tested against verbatim captured output, padding
-and nesting included. That is not theoretical: `parseUID` once searched for the
-substring `UID : ` in `scutil` output, which also matches the tail of
+the executable, so it can be tested against verbatim captured output. That was
+not theoretical: `parseUID` once searched for the substring `UID : ` in
+`scutil` output, which also matches the tail of
 `CGSSessionUniqueSessionUUID : ...`, so it failed on every real input and the
 app was never surfaced at all — while all the tests passed, because every one
-of them supplied a fake. Both that output and a real `ioreg` report are now
-fixtures in `Tests/ShowupTests/ParserTests.swift`.
+of them supplied a fake.
+
+Those parsers are now gone, which is the better outcome. `scutil` and `ioreg`
+output is no longer read at all, so there is no text left to disagree with
+reality. What replaced them is listed above, and `Scripts/root-api-probe.sh`
+checks each one as root and as a user, because showup runs as root and an API
+that only answers in one of the two is not usable here.
 
 ### The log
 

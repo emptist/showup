@@ -51,81 +51,6 @@ enum Mac {
 
     /// How long the keyboard and mouse have been untouched, in whole seconds.
     ///
-    /// `nil` when it cannot be read, which is a different thing from zero: zero
-    /// means the user is at the machine, and the alarm treats the two very
-    /// differently.
-    static func idleSeconds() -> Int? {
-        guard case .success(let report) = Mac.run("/usr/sbin/ioreg", ["-r", "-c", "IOHIDSystem", "-d1"]) else {
-            return nil
-        }
-        return try? parseIdleSeconds(report)
-    }
-
-    /// Verbatim from a real `ioreg -r -c IOHIDSystem -d1`.
-    ///
-    /// `ioreg` reports the counter in nanoseconds, so every path through this
-    /// divides — including the one where the field is the last line of the report
-    /// and has no newline after it.
-    public static func parseIdleSeconds(_ report: String) throws(ShowError) -> Int {
-        guard let marker = report.range(of: "\"HIDIdleTime\" = ") else {
-            throw ShowError.unavailable(what: "HIDIdleTime", reason: "ioreg did not report it")
-        }
-        let after = report[marker.upperBound...]
-        let field = after.prefix { $0 != "\n" }
-        guard let nanoseconds = Int(field.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-            throw ShowError.unavailable(what: "HIDIdleTime", reason: "\"\(field)\" is not a number")
-        }
-        return nanoseconds / 1_000_000_000
-    }
-
-    // MARK: - The console session
-
-    /// One query for the console user's uid, which is what `launchctl asuser` needs
-    /// in order to put a window in the right session.
-    static func scutilQuery() -> Result<String, ShowError> {
-        Mac.run("/bin/sh", ["-c", "echo 'show State:/Users/ConsoleUser' | /usr/sbin/scutil"])
-    }
-
-    static func consoleUID() -> Result<Int, ShowError> {
-        switch scutilQuery() {
-        case .failure(let reason):
-            return .failure(reason)
-        case .success(let output):
-            do {
-                return .success(try parseUID(output))
-            } catch {
-                return .failure(error)
-            }
-        }
-    }
-
-    /// The uid of the person at the console.
-    ///
-    /// showup is started after login and stopped before logout, so there is
-    /// always a session here; a zero would mean something has ended it.
-    ///
-    /// This matches a whole line that starts with `UID : `, not a substring. The
-    /// substring form also matched the tail of `CGSSessionUniqueSessionUUID : ...`,
-    /// so it failed on every real input and the app was never surfaced at all —
-    /// while every test passed, because every test supplied a fake.
-    public static func parseUID(_ output: String) throws(ShowError) -> Int {
-        let key = "UID :"
-        guard let line = output
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
-            .first(where: { $0.hasPrefix(key) })
-        else {
-            throw ShowError.unavailable(what: "console user", reason: "no UID line in scutil output")
-        }
-
-        guard let uid = Int(line.dropFirst(key.count).trimmingCharacters(in: .whitespacesAndNewlines)) else {
-            throw ShowError.unavailable(what: "console user", reason: "the UID line is not a number")
-        }
-        guard uid != 0 else {
-            throw ShowError.unavailable(what: "console user", reason: "the console is at the login window")
-        }
-        return uid
-    }
 
     // MARK: - Surfacing
 
@@ -155,8 +80,12 @@ enum Mac {
 
     // MARK: - Sound and volume
 
-    /// The idle timers, read once and cached: they do not change while the
-    /// program runs, and `pmset -g custom` is two command runs.
+    /// The idle timers, read once and cached.
+    ///
+    /// `pmset -g custom` is still the only way to read these. IOPSCopyPower
+    /// SettingsInfo and IOPMCopyCustomPowerProfiles are not in the SDK, so
+    /// there is no documented replacement and shelling out is the honest
+    /// answer rather than a shortcut.
     static let configuredPowerSettings: PowerSettings? = {
         guard case .success(let ps) = Mac.run("/usr/bin/pmset", ["-g", "ps"]),
               case .success(let custom) = Mac.run("/usr/bin/pmset", ["-g", "custom"])
@@ -178,25 +107,10 @@ enum Mac {
         return newestWake(line, now: secondsSinceMidnight(Date()), requestedAt: requestedAt)
     }
 
-    static func speakerVolume() -> Result<Int, ShowError> {
-        Mac.run("/usr/bin/osascript", ["-e", "output volume of (get volume settings)"]).flatMap { answer in
-            let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let volume = Int(trimmed) else {
-                return .failure(.unexpectedOutput(what: "volume", sample: trimmed))
-            }
-            return .success(volume)
-        }
-    }
-
     static func playSound(_ sound: String) -> Result<Void, ShowError> {
         Mac.run("/usr/bin/afplay", [sound]).map { _ in () }
     }
 
     // MARK: - Waking the Mac
 
-    /// Asks the kernel to bring the Mac back in that many seconds.
-    static func scheduleWake(in seconds: Int) -> Result<Void, ShowError> {
-        Mac.run("/usr/bin/pmset", ["schedule", "wake", pmsetDatetime(now: Date(), secondsFromNow: seconds)])
-            .map { _ in () }
-    }
 }

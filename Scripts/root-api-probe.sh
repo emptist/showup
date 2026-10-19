@@ -7,13 +7,20 @@
 # returns nonsense as root is worse than the shell it replaced, so this is
 # measured rather than assumed.
 #
-# Run it as root, which is how showup actually runs:
+# Compile as yourself, then run it both ways and compare:
 #
-#     sudo ./Scripts/root-api-probe.sh
+#     ./Scripts/root-api-probe.sh          # as you
+#     sudo ./Scripts/root-api-probe.sh      # as root, which is how showup runs
 #
-# Then run it again without sudo and compare the two columns.
+# Compiling under sudo fails - root has no Swift toolchain - so the binary is
+# built first and only the run is escalated.
 
-exec swift /dev/stdin "$@" <<'SWIFT'
+set -euo pipefail
+
+BINARY=/tmp/showup_root_api_probe
+SOURCE=/tmp/showup_root_api_probe.swift
+
+cat > "$SOURCE" <<'SWIFT'
 import Foundation
 import IOKit
 import IOKit.pwr_mgt
@@ -23,26 +30,27 @@ import CoreAudio
 import AudioToolbox
 
 func report(_ label: String, _ value: String) {
-    print(String(format: "%-26@ %@", label as NSString, value as NSString))
+    print("\(label.padding(toLength: 26, withPad: " ", startingAt: 0)) \(value)")
 }
 
-report("running as", "\(getuid()) \(getuid() == 0 ? "(root)" : "(user)")")
+report("running as", "\(getuid())\(getuid() == 0 ? " (root)" : " (user)")")
 
-// --- console user: replacement for `sh -c "echo ... | scutil"` ---
+// Console user: replacement for `sh -c "echo ... | scutil"` and a regex.
 var uid: uid_t = 0
 var gid: gid_t = 0
 if let user = SCDynamicStoreCopyConsoleUser(nil, &uid, &gid) {
-    report("SCDynamicStoreCopyConsoleUser", "\(user) uid=\(uid) gid=\(gid)")
+    report("SCDynamicStoreCopyConsole", "\(user) uid=\(uid) gid=\(gid)")
 } else {
-    report("SCDynamicStoreCopyConsoleUser", "nil  <-- would break the surfacing path")
+    report("SCDynamicStoreCopyConsole", "nil  <-- breaks the surfacing path")
 }
 
-// --- idle counter: replacement for parsing HIDIdleTime out of ioreg ---
-let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
-report("CGEventSource idle", String(format: "%.2fs", idle))
-if idle > 86_400 { report("  ^", "implausible: no window server session, this counter is not real") }
+// Idle counter: replacement for parsing HIDIdleTime out of ioreg.
+let idle = CGEventSource.secondsSinceLastEventType(
+    .combinedSessionState, eventType: CGEventType(rawValue: ~0)!
+)
+report("CGEventSource idle", String(format: "%.2fs%@", idle, idle > 86_400 ? "  <-- not a real counter" : ""))
 
-// --- volume: replacement for osascript ---
+// Volume: replacement for osascript.
 var device = AudioObjectID(0)
 var deviceAddress = AudioObjectPropertyAddress(
     mSelector: kAudioHardwarePropertyDefaultOutputDevice,
@@ -50,12 +58,14 @@ var deviceAddress = AudioObjectPropertyAddress(
     mElement: kAudioObjectPropertyElementMain)
 var deviceSize = UInt32(MemoryLayout<AudioObjectID>.size)
 let found = AudioObjectGetPropertyData(
-    AudioObjectID(kAudioObjectSystemObject), &deviceAddress, 0, nil, &deviceSize, &device)
+    AudioObjectID(kAudioObjectSystemObject), &deviceAddress, 0, nil, &deviceSize, &device
+)
 if found == noErr, device != 0 {
     var volumeAddress = AudioObjectPropertyAddress(
         mSelector: kAudioDevicePropertyVolumeScalar,
         mScope: kAudioDevicePropertyScopeOutput,
-        mElement: 0)
+        mElement: 0
+    )
     var volume: Float32 = 0
     var volumeSize = UInt32(MemoryLayout<Float32>.size)
     let status = AudioObjectGetPropertyData(device, &volumeAddress, 0, nil, &volumeSize, &volume)
@@ -64,16 +74,23 @@ if found == noErr, device != 0 {
     report("CoreAudio volume", "no output device, status \(found)")
 }
 
-// --- what the alarm would actually check against ---
-// --- scheduled RTC wakes: are any left armed? ---
-if let events = IOPMCopyScheduledPowerEvents()?.takeRetainedValue() {
-    let all = (events as? [[String: Any]]) ?? []
-    let pmset = all.filter { ($0["scheduledby"] as? String) == "pmset" }
-    report("RTC wakes armed", "\(pmset.count) from pmset, \(all.count) in total")
-    for event in pmset {
+// RTC wakes still armed. showup asks for one every pass and has never cancelled
+// any of them.
+if let events = IOPMCopyScheduledPowerEvents()?.takeRetainedValue(),
+    let all = (events as? [[String: Any]]) {
+    let fromPmset = all.filter { ($0["scheduledby"] as? String) == "pmset" }
+    report("RTC wakes armed", "\(fromPmset.count) from pmset, \(all.count) total")
+    for event in fromPmset {
         report("  armed", "\(event["time"] ?? "?")")
     }
 } else {
     report("RTC wakes armed", "could not be read")
 }
 SWIFT
+
+if [[ ! -x "$BINARY" || "$SOURCE" -nt "$BINARY" ]]; then
+    echo "building the probe..."
+    swiftc -O "$SOURCE" -o "$BINARY"
+fi
+
+"$BINARY"

@@ -30,9 +30,48 @@ enum Showup {
                     ? "no kernel sleep and wake notifications, falling back to the power log"
                     : "listening for the kernel's own sleep and wake notifications"
             )
+            leaveNothingArmed()
+            takeTheWakeBackOnExit()
+
             run(config, effects: .live(alarm: { alarmRing(AlarmOptions(), LiveAlarmEffects()) }))
         }
     }
+
+    /// Says what the kernel already has armed, so an alarm nobody expects is
+    /// visible at startup rather than discovered later as a Mac waking up for no
+    /// reason.
+    static func leaveNothingArmed() {
+        let armed = ScheduledWake.shared.armedWakes()
+        guard !armed.isEmpty else { return }
+        Log.write("the kernel already has \(armed.count) wake\(armed.count == 1 ? "" : "s") armed:")
+        for wake in armed.sorted(by: { $0.when < $1.when }) {
+            Log.write("  \(clock(secondsSinceMidnight(wake.when))) from \(wake.owner)")
+        }
+    }
+
+    /// Takes the RTC wake back when showup stops.
+    ///
+    /// Without this, Ctrl-C leaves the Mac armed to wake at a time nobody asked
+    /// for, and the leftovers accumulate across runs. Six were found on this
+    /// machine, from six runs that had already exited.
+    static func takeTheWakeBackOnExit() {
+        for number in [SIGINT, SIGTERM, SIGHUP] {
+            signal(number, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: number, queue: .global())
+            source.setEventHandler {
+                Log.write("stopping; taking the wake back with it")
+                ScheduledWake.shared.cancel()
+                exit(0)
+            }
+            source.resume()
+            signalSources.append(source)
+        }
+    }
+
+    /// Held for the life of the process. A DispatchSource that is released is
+    /// cancelled, and then Ctrl-C does nothing at all - which is exactly what
+    /// happened the first time this was written.
+    private nonisolated(unsafe) static var signalSources: [DispatchSourceSignal] = []
 
     /// Says where this run is writing before anything else, so the file can be
     /// found afterwards without guessing.

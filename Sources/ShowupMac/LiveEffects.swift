@@ -11,7 +11,7 @@ extension Effects {
             now: { secondsSinceMidnight(Date()) },
             currentDate: { Date() },
             sleep: { Thread.sleep(forTimeInterval: Double($0)) },
-            scheduleWake: { Mac.scheduleWake(in: $0) },
+            scheduleWake: { ScheduledWake.shared.schedule(in: $0) },
             idleSeconds: { Mac.idleSeconds() },
             show: { Mac.showApp($0) },
             alarm: alarm,
@@ -26,9 +26,17 @@ extension Effects {
 }
 
 /// The real alarm, on the real machine.
+///
+/// Written as an initialiser rather than property defaults because a property
+/// named `idleSeconds` cannot call `Mac.idleSeconds()` from its own initialiser.
 public struct LiveAlarmEffects: AlarmEffects {
-    public init() {}
-    public var idleSeconds: @Sendable () -> Int? = { Mac.idleSeconds() }
-    public var play: @Sendable (String) -> Result<Void, ShowError> = { Mac.playSound($0) }
-    public var sleep: @Sendable (Int) -> Void = { Thread.sleep(forTimeInterval: Double($0)) }
+    public var idleSeconds: @Sendable () -> Int?
+    public var play: @Sendable (String) -> Result<Void, ShowError>
+    public var sleep: @Sendable (Int) -> Void
+
+    public init() {
+        idleSeconds = { Mac.idleSeconds() }
+        play = { Mac.playSound($0) }
+        sleep = { Thread.sleep(forTimeInterval: Double($0)) }
+    }
 }
