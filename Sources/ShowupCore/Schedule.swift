@@ -10,9 +10,6 @@ public let nightLeadSeconds = 300
 /// After this long missing the plan, stop pretending it is still the plan.
 public let resyncAfterSeconds = 60
 
-/// How long to wait for the login window to go away before giving up on it.
-public let loginTimeoutSeconds = 120
-
 /// Below this the alarm is playing into a speaker nobody can hear.
 public let quietVolume = 30
 

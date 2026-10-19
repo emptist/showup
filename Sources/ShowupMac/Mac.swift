@@ -80,9 +80,8 @@ enum Mac {
 
     // MARK: - The console session
 
-    /// `scutil` answers both the question of who is logged in and whether the
-    /// login window is up, in one query. That matters: the login poll asks it once
-    /// a second for two minutes.
+    /// One query for the console user's uid, which is what `launchctl asuser` needs
+    /// in order to put a window in the right session.
     static func scutilQuery() -> Result<String, ShowError> {
         Mac.run("/bin/sh", ["-c", "echo 'show State:/Users/ConsoleUser' | /usr/sbin/scutil"])
     }
@@ -100,7 +99,10 @@ enum Mac {
         }
     }
 
-    /// The uid of the person at the console, or an error when there is nobody.
+    /// The uid of the person at the console.
+    ///
+    /// showup is started after login and stopped before logout, so there is
+    /// always a session here; a zero would mean something has ended it.
     ///
     /// This matches a whole line that starts with `UID : `, not a substring. The
     /// substring form also matched the tail of `CGSSessionUniqueSessionUUID : ...`,
@@ -124,27 +126,6 @@ enum Mac {
         }
         return uid
     }
-
-    static let loginDoneKey = "kCGSessionLoginDoneKey : TRUE"
-
-    /// Whether there is a user session a window can be put into.
-///
-/// The console user's uid is the thing that gates `open -a`: `launchctl asuser`
-/// needs a real uid, and at the login window there is none. `UID : 0` is how
-/// `scutil` reports `loginwindow`, so a zero means nobody is logged in and the
-/// honest answer is false.
-static func hasConsoleUser() -> Bool {
-    (try? consoleUID().get()) != nil
-}
-
-/// Whether the login has finished, which is a separate question: a locked
-/// screen still has a console user and still finishes the login.
-static func loginDone() -> Bool {
-    switch scutilQuery() {
-    case .failure: return true  // cannot ask; do not sit and poll
-    case .success(let output): return output.contains(loginDoneKey)
-    }
-}
 
     // MARK: - Surfacing
 

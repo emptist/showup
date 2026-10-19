@@ -118,10 +118,9 @@ private func value(in block: [String], key: String) -> String? {
 
 /// What the machine's own timers say about whether a wake can be completed.
 ///
-/// The bias is toward saying the useful thing out loud: showup's whole job
-/// after a wake is to turn the display on, ring, and wait for a login, and if
-/// the Mac is configured to drop the display before that work is done, the
-/// wake is theatre whether the code believes it or not.
+/// The bias is toward saying the useful thing out loud: the alarm is the only
+/// part of the program that can still do something when the display is dark, and
+/// how long it has to work is set here rather than by showup.
 public struct IdleWindowReport: Equatable, Sendable {
     /// What the machine is set to do, in one sentence.
     public var summary: String
@@ -152,17 +151,7 @@ public func auditIdleWindow(_ settings: PowerSettings?) -> IdleWindowReport {
         )
     }
 
-    var warnings: [String] = []
-    if window < loginTimeoutSeconds {
-        warnings.append(
-            """
-            the machine sleeps on its own after \(describeDelay(window)), which is shorter than the \
-            \(loginTimeoutSeconds)s showup may spend waiting for login: a wake can time out \
-            before the display ever comes back
-            """
-        )
-    }
-
+    let warnings: [String] = []
     return IdleWindowReport(
         summary: "this Mac sleeps on its own after \(describeDelay(window)) without input \(source) (\(timers))",
         warnings: warnings

@@ -9,15 +9,20 @@ launched for you.
 sudo showup -a Safari -t 8:00,12:00,16:00,20:00
 ```
 
-The `sudo` is not optional. `showup` asks the power-management system to wake
-the Mac out of sleep, and only root may do that.
+The `sudo` is needed for exactly one thing: asking the power-management system
+to wake the Mac out of sleep, which only root may do. Everything else — reading
+the sleep evidence, ringing, surfacing the app — works as your normal user.
 
 `showup` works out when the next of your times is, asks the kernel to wake the
 Mac a little before it, and then brings the application to the front. If the
-Mac was asleep it also rings, and waits for you to log in if it has to. It then
-does the same again for the next day, and the next, until you stop it with
-Ctrl-C. A time that has already passed today waits for tomorrow, so it is safe
-to leave running.
+Mac was asleep it rings first, until you answer. It then does the same again for
+the next day, and the next, until you stop it with Ctrl-C. A time that has
+already passed today waits for tomorrow, so it is safe to leave running.
+
+Start it after you log in and stop it before you log out. It is built for a
+session that is always there behind the login window: when the Mac wakes with
+the screen locked, your session is still alive, the app is launched into it, and
+it is waiting for you the moment you type your password.
 
 ## Building
 
@@ -86,8 +91,9 @@ likely sitting at it. Raise the window, and stop. No sound, no waiting, no
 ceremony. This is the whole job, and it is the job most wakes want.
 
 **Program 2 — rouse.** The Mac was asleep and this is the wake we asked for.
-Take the display off sleep, ring, and wait for the login window if there is
-one. Only then hand over to program 1.
+Ring, until a hand reaches the keyboard and the login window goes away. The
+app is launched into the session behind it, so it is in front of you by the
+time the password is in.
 
 A `DarkWake` — the machine coming up for network and mail maintenance with
 the screen still off — is deliberately *not* program 2. Nobody can see or hear
@@ -142,11 +148,12 @@ done inside that window:
 | Wake falls at | Lead | Why |
 | --- | --- | --- |
 | 07:00 – 21:59 | 1 minute | The machine has usually been up for hours, and whoever owns it is at it |
-| 22:00 – 06:59 | 5 minutes | The machine is likely asleep, and a person has to be woken and may have to log in |
+| 22:00 – 06:59 | 5 minutes | The machine is likely asleep, and a person has to be woken and type a password |
 
 Whatever is left of the window after the rousing is slept out, so the window
-itself still goes up on the time. The five minute lead has to cover the login
-poll on its own — 120 seconds — before any ringing is counted at all.
+itself still goes up on the time. On this Mac a 09:00 wake asked the kernel for
+08:59, the alarm rang for 17 seconds, and TextEdit came up at 10:35:02 against
+a 10:35:00 target: two seconds, inside one ten second step.
 
 ## Waking you up
 
@@ -241,10 +248,9 @@ which anything `showup` does can be seen or heard. So `showup` logs:
 showup: this Mac sleeps on its own after 20m without input on AC power (displaysleep 20m, sleep 25m)
 ```
 
-and if that window is shorter than the two minutes `showup` may spend waiting
-for a login, it says so at startup, because a wake can time out with the
-display still dark. When it rings, it also says how long the alarm has to be
-answered:
+The alarm is the only part of the program that can still do something while
+the display is dark, and this number is how long it has. So when it rings,
+showup says how long the alarm has to be answered:
 
 ```
 showup: it has 20m before it sleeps again, so the alarm has to be answered before then
@@ -426,5 +432,5 @@ somebody needs to read it is not much of a log.
 The `Effects` type is the boundary. If you port `showup` to another runtime or
 another OS, the hooks you need are `now`, `currentDate`, `sleep`,
 `scheduleWake`, `idleSeconds`, `show`, `alarm`, `outputVolume`,
-`hasConsoleUser`, `powerSettings`, `log` and `warn`. The scheduler core (and its tests) never call macOS APIs
+`powerSettings`, `log` and `warn`. The scheduler core (and its tests) never call macOS APIs
 directly.

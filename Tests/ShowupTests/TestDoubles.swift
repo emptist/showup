@@ -73,7 +73,6 @@ final class FakeMachine: @unchecked Sendable {
                 return .rung(rings: 3)
             },
             outputVolume: { [self] in .success(self.volume) },
-            hasConsoleUser: { [self] in self.recordConsolePoll() },
             powerSettings: { [self] in self.powerSettings },
             log: { [self] in self.logLines.append($0) },
             warn: { [self] in self.warnings.append($0) }
@@ -109,16 +108,6 @@ final class FakeMachine: @unchecked Sendable {
         lock.withLock {
             shownApps.append(app)
             return showOutcomes.count > 1 ? showOutcomes.removeFirst() : showOutcomes[0]
-        }
-    }
-
-    /// Counts down a scripted login wait: false until `loginSeconds` runs out.
-    private func recordConsolePoll() -> Bool {
-        lock.withLock {
-            desktopPolls += 1
-            guard loginSeconds > 0 else { return true }
-            loginSeconds -= 1
-            return loginSeconds == 0
         }
     }
 

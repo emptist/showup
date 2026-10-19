@@ -107,46 +107,6 @@ private let realIOHIDSystem = """
     }
 }
 
-/// Reconstructed from the documented shape of `State:/Users/ConsoleUser` at the
-/// login window. Unlike the two fixtures above this is NOT a verbatim capture:
-/// getting to a real login window means logging out of the session. It needs
-/// replacing with a real capture before anyone trusts it.
-private let loginWindowScutil = """
-    <dictionary> {
-      GID : 20
-      Name : loginwindow
-      SessionInfo : <array> {
-        0 : <dictionary> {
-          kCGSSessionAuditIDKey : 4294967295
-          kCGSSessionGroupIDKey : 20
-          kCGSSessionIDKey : 4294967295
-          kCGSSessionLoginwindowSafeLogin : FALSE
-          kCGSSessionOnConsoleKey : TRUE
-          kCGSSessionUserIDKey : 0
-          kCGSSessionUserNameKey : loginwindow
-          kCGSessionLoginDoneKey : FALSE
-        }
-      }
-      UID : 0
-    }
-
-    """
-
-@Suite struct LoginWindowTests {
-    @Test func theLoginWindowHasNoConsoleUser() {
-        // uid 0 is the login window, not a user.
-        #expect(throws: (any Error).self) { try Mac.parseUID(loginWindowScutil) }
-    }
-
-    @Test func theLoginWindowIsNotTheDesktop() {
-        #expect(loginWindowScutil.contains(Mac.loginDoneKey) == false)
-    }
-
-    @Test func theDesktopIsTheDesktop() {
-        #expect(realScutil.contains(Mac.loginDoneKey))
-    }
-}
-
 @Suite struct IdleCounterParserTests {
     @Test func readsTheCounterOutOfRealIOHIDOutput() throws {
         #expect(try Mac.parseIdleSeconds(realIOHIDSystem) == 345)

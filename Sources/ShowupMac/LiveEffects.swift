@@ -16,7 +16,6 @@ extension Effects {
             show: { Mac.showApp($0) },
             alarm: alarm,
             outputVolume: { Mac.speakerVolume() },
-            hasConsoleUser: { Mac.hasConsoleUser() },
             powerSettings: { Mac.configuredPowerSettings },
             log: { Log.write($0) },
             warn: { Log.write("WARNING \($0)", to: .standardError) }

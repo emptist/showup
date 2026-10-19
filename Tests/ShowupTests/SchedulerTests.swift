@@ -92,51 +92,6 @@ import Testing
 
     // MARK: Waiting for the login window
 
-    /// The regression: `pollUntilDesktop` returned `remaining`, which is zero
-    /// at the point of timing out, so a machine that never reached its desktop
-    /// had the whole lead window slept a second time and came up late.
-    @Test func aLoginWaitIsCountedAgainstTheWindow() {
-        let machine = FakeMachine()
-        machine.setClock(0)
-        machine.setIdleCounter(300)
-        machine.sleepsDuringWait = true
-        machine.loginSeconds = 20  // the desktop takes 20 seconds to arrive
-
-        _ = step(config(hour: 9), effects: machine.effects, from: 0)
-
-        #expect(machine.said("waiting for login to complete"))
-        #expect(machine.said("login complete, session ready"))
-        // 09:00 - 60s lead = 08:59 wake, then 60s window: 20 of it spent
-        // logging in, 40 slept out, and the app still goes up at 09:00.
-        #expect(machine.now == 9 * 3_600)
-    }
-
-    @Test func aLoginThatNeverCompletesStillUsesItsWholeTimeout() {
-        let machine = FakeMachine()
-        machine.setClock(0)
-        machine.setIdleCounter(300)
-        machine.sleepsDuringWait = true
-        machine.loginSeconds = .max
-
-        _ = step(config(hour: 9), effects: machine.effects, from: 0)
-
-        #expect(machine.didWarn("timed out after 120s waiting for login"))
-        #expect(machine.shownApps == ["Safari"])
-    }
-
-    @Test func anAlreadyLoggedInMachineSkipsTheWait() {
-        let machine = FakeMachine()
-        machine.setClock(0)
-        machine.setIdleCounter(300)
-        machine.sleepsDuringWait = true
-        machine.loginSeconds = 0
-
-        _ = step(config(hour: 9), effects: machine.effects, from: 0)
-
-        #expect(machine.said("already logged in"))
-        #expect(machine.desktopPolls == 1)
-    }
-
     // MARK: The lead window
 
     @Test func theKernelIsAskedToWakeAheadOfTheTime() {
@@ -223,18 +178,6 @@ import Testing
         #expect(machine.said("displaysleep 20m, sleep 25m"))
     }
 
-    @Test func warnsWhenTheMachineSleepsBeforeALoginCanFinish() {
-        let machine = FakeMachine()
-        machine.powerSettings = PowerSettings(
-            source: .ac, displaySleepMinutes: 1, systemSleepMinutes: 2, powerNap: false
-        )
-        let empty = Config(app: "Safari", times: [], ring: true, dryRun: false)
-
-        run(empty, effects: machine.effects)
-
-        #expect(machine.didWarn("login"))
-    }
-
     /// The alarm is only audible while the machine is up, and the machine
     /// decides that for itself after this many seconds of silence.
     @Test func saysHowLongTheAlarmCanBeHeardFor() {
@@ -250,54 +193,6 @@ import Testing
 
         #expect(machine.said("20m before it sleeps again"))
         #expect(machine.didWarn("login") == false)
-    }
-
-    // MARK: Logging in
-
-    /// Nobody logged in means no uid to run `open` in, which is a failure of
-    /// the session rather than of the app. showup waits for the login and tries
-    /// again, so that logging in is all the user has to do.
-    @Test func aFailureWhileLockedIsRetriedAfterLogin() {
-        let machine = FakeMachine()
-        machine.setClock(0)
-        machine.loginSeconds = 12  // the user takes 12 seconds to log in
-        machine.setShowOutcomes([
-            .failed("no console user"),
-            .surfaced,
-        ])
-
-        _ = step(config(hour: 9), effects: machine.effects, from: 0)
-
-        #expect(machine.shownApps == ["Safari", "Safari"])
-        #expect(machine.didWarn("could not show Safari: no console user"))
-        #expect(machine.said("waiting before trying Safari again"))
-        #expect(machine.said("brought Safari to the foreground"))
-    }
-
-    /// At the desktop, a genuine failure is reported and not retried forever.
-    @Test func aFailureAtTheDesktopIsNotRetried() {
-        let machine = FakeMachine()
-        machine.setClock(0)
-        machine.loginSeconds = 0
-        machine.setShowOutcomes([.failed("no such app")])
-
-        _ = step(config(hour: 9), effects: machine.effects, from: 0)
-
-        #expect(machine.shownApps == ["Safari"])
-        #expect(machine.didWarn("no such app"))
-    }
-
-    /// A second failure after the login is a real failure and is reported.
-    @Test func aSecondFailureAfterLoginIsReported() {
-        let machine = FakeMachine()
-        machine.setClock(0)
-        machine.loginSeconds = 3
-        machine.setShowOutcomes([.failed("no console user")])
-
-        _ = step(config(hour: 9), effects: machine.effects, from: 0)
-
-        #expect(machine.shownApps == ["Safari", "Safari"])
-        #expect(machine.didWarn("could not show Safari: no console user"))
     }
 
     // MARK: Degenerate input

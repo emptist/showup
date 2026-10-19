@@ -56,7 +56,7 @@ public func step(_ config: Config, effects: Effects, from now: Int) -> Step {
     }
     sleepSeconds(effects, remaining - spent)
 
-    return .surfaced(wake: wake, showed: present(config, effects))
+    return .surfaced(wake: wake, showed: surface(config.app, effects))
 }
 
 /// How long this Mac is configured to stay awake with nobody touching it.
@@ -69,8 +69,7 @@ private func reportIdleWindow(_ effects: Effects) {
     for warning in report.warnings { effects.warn(warning) }
 }
 
-/// Program 2. Takes the display off sleep, rings, and waits for the login
-/// window if there is one. Returns how many seconds it spent.
+/// Program 2. Rings until somebody answers, so the login window goes away.
 private func rouse(_ config: Config, _ effects: Effects) -> Int {
     checkAudible(effects)
 
@@ -96,7 +95,7 @@ private func rouse(_ config: Config, _ effects: Effects) -> Int {
         effects.log("it has \(describeDelay(window)) before it sleeps again, so the alarm has to be answered before then")
     }
 
-    return ensureLoggedIn(effects)
+    return 0
 }
 
 /// An alarm nobody can hear is the worst failure this program has, and nothing
@@ -107,52 +106,9 @@ private func checkAudible(_ effects: Effects) {
     effects.warn("the alarm plays at the speaker volume, which is \(volume) - you will not hear it")
 }
 
-/// Waits for somebody to log in, up to `loginTimeoutSeconds`.
-///
-/// What is being waited for is a *console user*, not a visible desktop: a
-/// locked screen still has one, and `open -a` run in that session is already
-/// in front of the user the moment they unlock. Only the login window, where
-/// the console user is `loginwindow` and there is no uid to run anything in,
-/// needs waiting for.
-private func ensureLoggedIn(_ effects: Effects) -> Int {
-    if effects.hasConsoleUser() {
-        effects.log("already logged in")
-        return 0
-    }
-
-    effects.log("waiting for login to complete...")
-    var waited = 0
-    while waited < loginTimeoutSeconds {
-        effects.sleep(1)
-        waited += 1
-        if effects.hasConsoleUser() {
-            effects.log("login complete, session ready")
-            return waited
-        }
-    }
-    effects.warn("timed out after \(loginTimeoutSeconds)s waiting for login")
-    return waited
-}
-
 /// The alarm is unbounded by design, so it gets a queue of its own rather than
 /// a thread on the cooperative pool that it would occupy for as long as it takes.
 private let alarmQueue = DispatchQueue(label: "showup.alarm")
-
-/// Surfaces the app, and if that fails off the desktop, waits for the login
-/// and tries again.
-///
-/// A locked screen accepts `open` and shows nothing at all, so a failure while
-/// nobody is logged in is the lock rather than the app. Retrying is what makes
-/// "log in and the window is there" true rather than something the user has to
-/// think about.
-private func present(_ config: Config, _ effects: Effects) -> ShowOutcome {
-    let first = surface(config.app, effects)
-    guard case .failed = first, !effects.hasConsoleUser() else { return first }
-
-    effects.log("nobody is logged in, so waiting before trying \(config.app) again")
-    _ = ensureLoggedIn(effects)
-    return surface(config.app, effects)
-}
 
 // MARK: - Program 1 (surface)
 

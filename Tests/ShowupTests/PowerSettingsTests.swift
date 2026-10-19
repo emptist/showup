@@ -123,15 +123,6 @@ private let realPmsetPS = """
         #expect(report.summary.contains("AC power"))
     }
 
-    /// `displaysleep 1` is a normal thing to have on a desktop. A login that
-    /// takes longer than that can finish with the display still dark.
-    @Test func aWindowShorterThanTheLoginWaitIsWarnedAbout() {
-        let settings = PowerSettings(source: .ac, displaySleepMinutes: 1, systemSleepMinutes: 2, powerNap: false)
-        let report = auditIdleWindow(settings)
-        #expect(report.warnings.count == 1)
-        #expect(report.warnings[0].contains("login"))
-    }
-
     @Test func aMachineThatNeverSleepsIsSaidToAndLeftAlone() {
         let settings = PowerSettings(source: .battery, displaySleepMinutes: 0, systemSleepMinutes: 0, powerNap: false)
         let report = auditIdleWindow(settings)

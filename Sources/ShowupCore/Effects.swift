@@ -23,8 +23,6 @@ public struct Effects: Sendable {
     public var alarm: @Sendable () -> AlarmOutcome
     /// Speaker volume, 0 to 100.
     public var outputVolume: @Sendable () -> Result<Int, ShowError>
-    /// Whether somebody is logged in and a window can be put in their session.
-    public var hasConsoleUser: @Sendable () -> Bool
     /// How long the Mac is configured to stay awake with nobody touching it.
     public var powerSettings: @Sendable () -> PowerSettings?
     public var log: @Sendable (String) -> Void
@@ -39,7 +37,6 @@ public struct Effects: Sendable {
         show: @escaping @Sendable (String) -> ShowOutcome,
         alarm: @escaping @Sendable () -> AlarmOutcome,
         outputVolume: @escaping @Sendable () -> Result<Int, ShowError>,
-        hasConsoleUser: @escaping @Sendable () -> Bool,
         powerSettings: @escaping @Sendable () -> PowerSettings?,
         log: @escaping @Sendable (String) -> Void,
         warn: @escaping @Sendable (String) -> Void
@@ -52,7 +49,6 @@ public struct Effects: Sendable {
         self.show = show
         self.alarm = alarm
         self.outputVolume = outputVolume
-        self.hasConsoleUser = hasConsoleUser
         self.powerSettings = powerSettings
         self.log = log
         self.warn = warn
