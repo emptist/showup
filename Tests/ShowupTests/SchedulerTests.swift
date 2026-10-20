@@ -223,6 +223,9 @@ import Testing
     /// Measured: launching the app into the session at the target time, while
     /// the screen was still locked, left it nowhere. So the app goes up when
     /// the ringing stops, not when the clock says so.
+    /// The alarm is answered and the window waits for the required time: the
+    /// answer may arrive before the time, and the window must not go up before
+    /// the time it exists for.
     @Test func theAppIsSurfacedAfterTheAlarmIsAnswered() {
         let machine = FakeMachine()
         machine.setClock(0)
@@ -234,10 +237,9 @@ import Testing
 
         #expect(machine.said("rang 3 times to be heard; somebody is back"))
         #expect(machine.shownApps == ["Safari"])
-        // The window was spent ringing, not slept out in front of a locked screen.
-        #expect(machine.now == 8 * 3_600 + 59 * 60 + 30)
+        // Answered at 08:59:30, and the window still waited for 09:00.
+        #expect(machine.now == 9 * 3_600)
     }
-
     /// Nobody is waiting for the clock when they are awake and at the machine.
     @Test func anAwakeMachineStillGetsTheAppOnTime() {
         let machine = FakeMachine()
@@ -248,13 +250,13 @@ import Testing
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
         #expect(machine.alarmCount == 0)
-        #expect(machine.now == 9 * 3_600 - dayLeadSeconds + dayLeadSeconds)
+        #expect(machine.now == 9 * 3_600)
         #expect(machine.shownApps == ["Safari"])
     }
 
-    /// --no-ring on a sleeping machine has nobody to wait for, so the app goes
-    /// up as soon as the window is up.
-    @Test func noRingOnASleepingMachineSurfacesWithoutWaiting() {
+    /// `--no-ring` on a sleeping machine has no sound to hold, but the window
+    /// still does not go up before the time it exists for.
+    @Test func noRingOnASleepingMachineStillWaitsForTheTime() {
         let machine = FakeMachine()
         machine.setClock(0)
         machine.setIdleCounter(300)
@@ -264,7 +266,97 @@ import Testing
 
         #expect(machine.alarmCount == 0)
         #expect(machine.shownApps == ["Safari"])
-        #expect(machine.now == 9 * 3_600 - dayLeadSeconds)
+        #expect(machine.now == 9 * 3_600)
+    }
+
+    /// The window waits for the required time even when the wake came early
+    /// and the machine was up. A real run on this very Mac put the app up at
+    /// 21:59:00 four times out of four against 22:00 requirements, because
+    /// the waits were trusted instead of the clock. The scheduler now reads the
+    /// clock and holds until it is time.
+    @Test func theWindowIsHeldUntilTheRequiredTimeNoMatterWhatTheWaitsDid() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.sleepsDuringWait = false
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        #expect(machine.now == 9 * 3_600)
+        #expect(machine.shownApps == ["Safari"])
+    }
+
+    /// The same hold runs in the sleeping case: answered, and still not early.
+    @Test func anAnsweredAlarmStillShowsAtTheRequiredTime() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(0)
+        machine.sleepsDuringWait = true
+        machine.alarmTakesSeconds = 30
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        #expect(machine.alarmCount == 1)
+        #expect(machine.now == 9 * 3_600)
+        #expect(machine.shownApps == ["Safari"])
+    }
+
+    /// The machine's clock and the schedule can disagree, and they did: a
+    /// window served a minute early put every later one a minute early too,
+    /// because the next wait was measured from the scheduled time rather than
+    /// from where the machine actually was. Four runs of a real 21:00 wake put
+    /// the app up at 20:59:00.
+    ///
+    /// The window goes up when the machine's clock says the time has come, and
+    /// the schedule is what the machine's clock is measured against.
+    @Test func aWindowIsNotEarlyBecauseTheClockAndTheScheduleDisagree() {
+        let machine = FakeMachine()
+        // The machine is a minute ahead of where the schedule thinks it is.
+        machine.setClock(60)
+        machine.sleepsDuringWait = false
+
+        // The schedule says 09:00 is 9 hours away, as it would after a window
+        // that was served a minute early.
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        // The machine's own clock reached 09:00, and not a moment sooner.
+        #expect(machine.now == 9 * 3_600)
+        #expect(machine.shownApps == ["Safari"])
+    }
+
+    /// The chain that drifted: a window served early, then the next one, then
+    /// the next. The schedule was carried forward by the time of day of the
+    /// window that was served, so every window after an early one was early
+    /// too - 20:59:00, 21:59:00, 22:59:00, 23:54:02 against 21:00, 22:00,
+    /// 23:00 and 00:00.
+    ///
+    /// The loop carries the machine's own clock forward instead, so the drift
+    /// cannot accumulate.
+    @Test func anEarlyWindowDoesNotMakeTheNextOneEarly() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        // The Mac was asleep, and the alarm was answered before the required
+        // time, which is what a window served early looks like: the wake came
+        // a minute early and the person answered straight away.
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.alarmTakesSeconds = 30
+        let times = [TimeOfDay(hour: 21, minute: 0), TimeOfDay(hour: 22, minute: 0)]
+
+        var instant = 0
+        var served: [Int] = []
+        for _ in 0..<2 {
+            _ = step(
+                Config(app: "Safari", times: times, ring: true, dryRun: false),
+                effects: machine.effects,
+                from: instant
+            )
+            served.append(machine.now)
+            instant = machine.now
+        }
+
+        // 21:00 and 22:00, each to the second. The first window was ready at
+        // 20:59:30, and it waited the half minute.
+        #expect(served == [21 * 3_600, 22 * 3_600])
     }
 
     /// The alarm is given the machine's own idle window, measured rather than
@@ -349,7 +441,9 @@ import Testing
         for _ in 0..<3 {
             guard case .surfaced(let wake, _) = step(morning, effects: machine.effects, from: instant) else { break }
             shown += 1
-            instant = wake.at.secondsSinceMidnight
+            // The same thing the loop does: the machine's own clock, which is
+            // also what keeps the wake just served from being served twice.
+            instant = machine.now
         }
 
         #expect(shown == 3)

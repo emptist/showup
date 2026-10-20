@@ -100,6 +100,11 @@ nothing was in front afterwards. The activation does not survive the screen
 coming back. So the ringing is not a courtesy before the work — it is what
 tells us there is somebody there, and the app goes up the moment there is.
 
+One thing the ringing does not do: it does not bring the app up *early*. If
+the alarm is answered before the required time, the window waits for the time
+to arrive. The alarm says somebody is there; the clock says when the window
+belongs to them.
+
 There is no public API for "is the screen locked": `CGSessionCopyCurrentDictionary`
 has no lock key and returns nothing at all for a process without a window
 server session. The keyboard counter is the signal, and it is already answering
@@ -215,9 +220,24 @@ done inside that window:
 On a machine that never went down, whatever is left of the window after the
 alarm is slept out, so the window still goes up on the time — a measured run put
 TextEdit in front at 10:35:02 against a 10:35:00 target, two seconds, inside
-one ten second step. When the Mac had been asleep the app goes up when the
-ringing stops instead, which is later than the target if you are away from the
-machine and exactly when you want it if you are not.
+one ten second step.
+
+The window never goes up **before** the required time, whichever program ran.
+An alarm answered at 20:59:30 for a 21:00 window waits the remaining half
+minute; a machine that was up the whole time waits out the whole lead. Late is
+possible, early is not.
+
+The wait is counted on the machine's own clock, and the loop carries that clock
+forward rather than the scheduled time. It matters: a window served a minute
+early used to put every later window a minute early too, because the next wait
+was measured from the time the window was *aimed* at rather than from where the
+machine actually was. A real run put the app up at 20:59:00, 21:59:00,
+22:59:00 and 23:54:02 against 21:00, 22:00, 23:00 and 00:00 — four windows,
+four minutes early, one after another.
+
+When the Mac had been asleep the app goes up when the ringing stops, which is
+later than the target if you are away from the machine and exactly when you
+want it if you are not.
 
 ## Waking you up
 
