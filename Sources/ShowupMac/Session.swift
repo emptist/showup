@@ -31,6 +31,15 @@ extension Mac {
 
     // MARK: - The idle counter
 
+    /// How long the keyboard has been untouched, in whole seconds.
+    ///
+    /// Keys only, and deliberately: this is what stops the alarm, and a hand on
+    /// the keyboard is what answers it. A trackpad twitch while nobody is there
+    /// is not an answer.
+    public static func keyboardIdleSeconds() -> Int? {
+        secondsSinceLast(.keyDown)
+    }
+
     /// How long the keyboard and mouse have been untouched, in whole seconds.
     ///
     /// `CGEventSource.secondsSinceLastEventType` is the documented counter. It
@@ -43,8 +52,12 @@ extension Mac {
     /// thing from zero: zero means the user is at the machine, and the alarm
     /// treats the two very differently.
     public static func idleSeconds() -> Int? {
+        secondsSinceLast(CGEventType(rawValue: ~0)!)
+    }
+
+    private static func secondsSinceLast(_ eventType: CGEventType) -> Int? {
         let seconds = CGEventSource.secondsSinceLastEventType(
-            .combinedSessionState, eventType: CGEventType(rawValue: ~0)!
+            .combinedSessionState, eventType: eventType
         )
         guard seconds.isFinite, seconds >= 0, seconds < 86_400 else { return nil }
         return Int(seconds)
@@ -52,12 +65,8 @@ extension Mac {
 
     // MARK: - Speaker volume
 
-    /// The output volume, 0 to 100, from the default output device.
-    ///
-    /// This was an `osascript` one-liner. The two agree - both read 31 on this
-    /// machine - and this one does not need a scripting bridge to be resident
-    /// with a GUI session.
-    public static func speakerVolume() -> Result<Int, ShowError> {
+    /// The default output device.
+    private static func outputDevice() -> Result<AudioObjectID, ShowError> {
         var device = AudioObjectID(0)
         var deviceAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultOutputDevice,
@@ -73,7 +82,23 @@ extension Mac {
         guard found == noErr, device != 0 else {
             return .failure(.unavailable(what: "the output device", reason: "CoreAudio returned \(found)"))
         }
+        return .success(device)
+    }
 
+    /// The output volume, 0 to 100, from the default output device.
+    ///
+    /// This was an `osascript` one-liner. The two agree - both read 31 on this
+    /// machine - and this one does not need a scripting bridge to be resident
+    /// with a GUI session.
+    public static func speakerVolume() -> Result<Int, ShowError> {
+        return switch outputDevice() {
+        case .failure(let reason): .failure(reason)
+        case .success(let device): volumeOn(device)
+        }
+    }
+
+    /// Reads the volume property off a device.
+    private static func volumeOn(_ device: AudioObjectID) -> Result<Int, ShowError> {
         var volume: Float32 = 0
         var volumeAddress = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyVolumeScalar,
@@ -88,5 +113,34 @@ extension Mac {
             return .failure(.unavailable(what: "the volume", reason: "CoreAudio returned \(status)"))
         }
         return .success(Int((volume * 100).rounded()))
+    }
+
+    /// Sets the output volume, 0 to 100, on the default output device.
+    ///
+    /// The write side of `speakerVolume()`: the same device, the same property,
+    /// and the same element, so what is read back is what was written.
+    public static func setSpeakerVolume(_ percent: Int) -> Result<Void, ShowError> {
+        return switch outputDevice() {
+        case .failure(let reason): .failure(reason)
+        case .success(let device): setVolumeOn(device, to: percent)
+        }
+    }
+
+    /// Writes the volume property on a device.
+    private static func setVolumeOn(_ device: AudioObjectID, to percent: Int) -> Result<Void, ShowError> {
+        var volume = Float32(min(max(percent, 0), 100)) / 100
+        var volumeAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyVolumeScalar,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: 0
+        )
+        var volumeSize = UInt32(MemoryLayout<Float32>.size)
+        let status = withUnsafeMutablePointer(to: &volumeAddress) { address in
+            AudioObjectSetPropertyData(device, address, 0, nil, volumeSize, &volume)
+        }
+        guard status == noErr else {
+            return .failure(.unavailable(what: "the volume", reason: "CoreAudio returned \(status)"))
+        }
+        return .success(())
     }
 }

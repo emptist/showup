@@ -10,6 +10,10 @@ public let nightLeadSeconds = 300
 /// Below this the alarm is playing into a speaker nobody can hear.
 public let quietVolume = 30
 
+/// What the speaker is raised to before the alarm rings, when it is quieter
+/// than this.
+public let ringVolume = 20
+
 /// Whether the kernel is told to wake at `ahead` or `delay`, and how much of the
 /// window is left afterwards for the rousing and the wait.
 public func leadSplit(delaySeconds: Int, leadSeconds: Int) -> (ahead: Int, remaining: Int) {

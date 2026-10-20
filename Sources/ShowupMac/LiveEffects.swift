@@ -6,8 +6,6 @@ extension Effects {
     ///
     /// The alarm is passed in rather than built here so the entry point decides
     /// its options and this stays a plain mapping of hooks to commands.
-    /// - Parameter alarm: takes the ring count at which to give up, or nil to
-    ///   never. The scheduler passes a bound so its loop cannot be stranded.
     public static func live(alarm: @escaping @Sendable (Int?) -> AlarmOutcome) -> Effects {
         Effects(
             now: { secondsSinceMidnight(Date()) },
@@ -18,6 +16,7 @@ extension Effects {
             show: { Mac.showApp($0) },
             alarm: alarm,
             outputVolume: { Mac.speakerVolume() },
+            setOutputVolume: { Mac.setSpeakerVolume($0) },
             powerSettings: { Mac.configuredPowerSettings },
             wakeKind: { Mac.currentWakeKind(requestedAt: $0) },
             powerCycle: { PowerNotifications.shared?.takeCycle() },
@@ -32,12 +31,14 @@ extension Effects {
 /// Written as an initialiser rather than property defaults because a property
 /// named `idleSeconds` cannot call `Mac.idleSeconds()` from its own initialiser.
 public struct LiveAlarmEffects: AlarmEffects {
-    public var idleSeconds: @Sendable () -> Int?
+    public var now: @Sendable () -> Int
+    public var keyboardIdleSeconds: @Sendable () -> Int?
     public var play: @Sendable (String) -> Result<Void, ShowError>
     public var sleep: @Sendable (Int) -> Void
 
     public init() {
-        idleSeconds = { Mac.idleSeconds() }
+        now = { secondsSinceMidnight(Date()) }
+        keyboardIdleSeconds = { Mac.keyboardIdleSeconds() }
         play = { Mac.playSound($0) }
         sleep = { Thread.sleep(forTimeInterval: Double($0)) }
     }

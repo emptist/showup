@@ -127,28 +127,30 @@ private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) {
     checkAudible(effects)
 
     if config.ring {
-        // Bounded, or the loop below is stranded: nobody comes back, the alarm
-        // rings for ever, and tomorrow's wake is never asked for. The bound is
-        // the machine's own idle window, after which the display sleeps anyway
-        // and further ringing achieves nothing.
-        let window = effects.powerSettings()?.idleWindowSeconds ?? defaultRouseBudgetSeconds
-        let rings = max(1, window / ringBetweenSeconds)
-        switch effects.alarm(rings) {
+        // A wake is worth what its window is worth. This is the machine's own
+        // idle timer, measured with `pmset -g custom`: by the time the Mac is
+        // due to sleep again, a wake that has not reached anybody has failed,
+        // and ringing past that point is ringing at a closed door.
+        //
+        // Nil when the timers cannot be read, or when the Mac is set never to
+        // sleep. Neither is the same as never: the machine going down on its
+        // own ends the alarm too.
+        let window = effects.powerSettings()?.idleWindowSeconds
+        raiseToBeHeard(effects)
+        switch effects.alarm(window) {
         case .rung(let rings):
             effects.log(
                 "rang \(rings) times to be heard; somebody is back"
+            )
+        case .failed(let rings):
+            effects.log(
+                "rang \(rings) times and nobody came back; this wake has passed"
             )
         case .silent(let reason):
             effects.warn("could not ring: \(reason)")
         }
     } else {
         effects.log("--no-ring was given, staying quiet")
-    }
-
-    // The alarm only works while the machine is up, and the machine decides
-    // that for itself after this many seconds of silence.
-    if let window = effects.powerSettings()?.idleWindowSeconds {
-        effects.log("it has \(describeDelay(window)) before it sleeps again, so the alarm has to be answered before then")
     }
 }
 
@@ -158,6 +160,18 @@ private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) {
 private func checkAudible(_ effects: Effects) {
     guard case .success(let volume) = effects.outputVolume(), volume < quietVolume else { return }
     effects.warn("the alarm plays at the speaker volume, which is \(volume) - you will not hear it")
+}
+
+/// Raises the speaker to what can be heard before the alarm plays, and never
+/// lowers it, because the volume somebody chose is not ours to change.
+private func raiseToBeHeard(_ effects: Effects) {
+    guard case .success(let volume) = effects.outputVolume(), volume < ringVolume else { return }
+    switch effects.setOutputVolume(ringVolume) {
+    case .success:
+        effects.log("the speaker was at \(volume), so it was raised to \(ringVolume) for the alarm")
+    case .failure(let reason):
+        effects.warn("could not raise the speaker volume from \(volume): \(reason)")
+    }
 }
 
 // MARK: - Program 1 (surface)

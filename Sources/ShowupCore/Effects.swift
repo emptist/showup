@@ -19,10 +19,12 @@ public struct Effects: Sendable {
     public var idleSeconds: @Sendable () -> Int?
     /// Surfaces the app, launching it if it is not running.
     public var show: @Sendable (String) -> ShowOutcome
-    /// Rings until somebody answers, or until `giveUpAfter` rings have gone by.
+    /// Rings until somebody hits a key, or until `budget` seconds have gone by.
     public var alarm: @Sendable (Int?) -> AlarmOutcome
     /// Speaker volume, 0 to 100.
     public var outputVolume: @Sendable () -> Result<Int, ShowError>
+    /// Sets the speaker volume, so the ring can be raised above silence.
+    public var setOutputVolume: @Sendable (Int) -> Result<Void, ShowError>
     /// How long the Mac is configured to stay awake with nobody touching it.
     public var powerSettings: @Sendable () -> PowerSettings?
     /// Whether this wake can be heard, or only the machine's own maintenance.
@@ -42,6 +44,7 @@ public struct Effects: Sendable {
         show: @escaping @Sendable (String) -> ShowOutcome,
         alarm: @escaping @Sendable (Int?) -> AlarmOutcome,
         outputVolume: @escaping @Sendable () -> Result<Int, ShowError>,
+        setOutputVolume: @escaping @Sendable (Int) -> Result<Void, ShowError>,
         powerSettings: @escaping @Sendable () -> PowerSettings?,
         wakeKind: @escaping @Sendable (Int?) -> WakeKind,
         powerCycle: @escaping @Sendable () -> PowerCycle?,
@@ -56,6 +59,7 @@ public struct Effects: Sendable {
         self.show = show
         self.alarm = alarm
         self.outputVolume = outputVolume
+        self.setOutputVolume = setOutputVolume
         self.powerSettings = powerSettings
         self.wakeKind = wakeKind
         self.powerCycle = powerCycle

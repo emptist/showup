@@ -42,6 +42,7 @@ final class FakeMachine: @unchecked Sendable {
     // Scripted behaviour
     var loginSeconds = 0
     var volume = 50
+    private(set) var volumeWasSetTo: [Int] = []
     var powerSettings: PowerSettings? = PowerSettings(
         source: .ac, displaySleepMinutes: 20, systemSleepMinutes: 25, powerNap: true
     )
@@ -49,7 +50,7 @@ final class FakeMachine: @unchecked Sendable {
     var wakeKind: WakeKind = .full
     /// How long the alarm takes to be answered, in seconds of the fake clock.
     var alarmTakesSeconds = 0
-    private(set) var lastGiveUpAfter: Int?
+    private(set) var lastBudget: Int?
     var powerCycle: PowerCycle? = PowerCycle(willSleep: true, hasPoweredOn: true)
     private(set) var requestedAt: Int?
 
@@ -73,8 +74,8 @@ final class FakeMachine: @unchecked Sendable {
             scheduleWake: { [self] in self.recordWakeRequest($0) },
             idleSeconds: { [self] in self.readIdle() },
             show: { [self] app in self.recordShow(app) },
-            alarm: { [self] giveUpAfter in
-                self.lastGiveUpAfter = giveUpAfter
+            alarm: { [self] budget in
+                self.lastBudget = budget
                 self.alarmRan.signal()
                 self.alarmCount += 1
                 // The alarm rings until somebody answers, and only then is
@@ -83,6 +84,10 @@ final class FakeMachine: @unchecked Sendable {
                 return .rung(rings: 3)
             },
             outputVolume: { [self] in .success(self.volume) },
+            setOutputVolume: { [self] percent in
+                self.lock.withLock { self.volumeWasSetTo.append(percent) }
+                return .success(())
+            },
             powerSettings: { [self] in self.powerSettings },
             wakeKind: { [self] in self.recordWakeKind($0) },
             powerCycle: { [self] in self.powerCycle },
@@ -173,9 +178,13 @@ final class FakeAlarm: AlarmEffects, @unchecked Sendable {
     private let lock = NSLock()
     private let idleReadings: [Int?]
     private let playOutcomes: [Result<Void, ShowError>]
+    /// Seconds the clock jumps forward on each `sleep`, over and above the
+    /// requested wait. Anything large is the machine having gone down.
+    var sleepAdvancesClock: @Sendable (Int) -> Int = { _ in 0 }
 
     private(set) var plays = 0
     private(set) var sleeps = 0
+    private(set) var clock: Int = 0
 
     init(readings: [Int?], playResult: Result<Void, ShowError> = .success(())) {
         self.idleReadings = readings.isEmpty ? [nil] : readings
@@ -187,7 +196,11 @@ final class FakeAlarm: AlarmEffects, @unchecked Sendable {
         self.playOutcomes = playResults.isEmpty ? [.success(())] : playResults
     }
 
-    var idleSeconds: @Sendable () -> Int? {
+    var now: @Sendable () -> Int {
+        { [self] in lock.withLock { clock } }
+    }
+
+    var keyboardIdleSeconds: @Sendable () -> Int? {
         { [self] in lock.withLock { idleReadings[min(plays, idleReadings.count - 1)] } }
     }
 
@@ -202,6 +215,11 @@ final class FakeAlarm: AlarmEffects, @unchecked Sendable {
     }
 
     var sleep: @Sendable (Int) -> Void {
-        { [self] _ in lock.withLock { sleeps += 1 } }
+        { [self] seconds in
+            lock.withLock {
+                sleeps += 1
+                clock += seconds + sleepAdvancesClock(sleeps)
+            }
+        }
     }
 }

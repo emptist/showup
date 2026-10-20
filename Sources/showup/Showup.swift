@@ -33,7 +33,7 @@ enum Showup {
             leaveNothingArmed()
             takeTheWakeBackOnExit()
 
-            run(config, effects: .live(alarm: { alarmRing(AlarmOptions(giveUpAfter: $0), LiveAlarmEffects()) }))
+            run(config, effects: .live(alarm: { alarmRing(AlarmOptions(budget: $0), LiveAlarmEffects()) }))
         }
     }
 
@@ -108,10 +108,10 @@ enum Showup {
             "  -n, --dry-run         Print the next few wake times and exit.",
             "  -q, --no-ring         Never make a sound. By default showup rings",
             "                        like an incoming FaceTime call, repeating every",
-            "                        five seconds, only when it had to wake the Mac",
-            "                        from sleep and nothing answered it. Use this if",
-            "                        you would rather it only ever brought the window",
-            "                        forward silently.",
+            "                        five seconds until you press a key, and only",
+            "                        when it had to wake the Mac from sleep. Use this",
+            "                        if you would rather it only ever brought the",
+            "                        window forward silently.",
             "  -h, --help            Show this message.",
             "",
             "Both --flag value and --flag=value forms are accepted. A time that has",

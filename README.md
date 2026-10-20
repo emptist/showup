@@ -102,7 +102,7 @@ tells us there is somebody there, and the app goes up the moment there is.
 
 There is no public API for "is the screen locked": `CGSessionCopyCurrentDictionary`
 has no lock key and returns nothing at all for a process without a window
-server session. The input counter is the signal, and it is already answering
+server session. The keyboard counter is the signal, and it is already answering
 exactly this question for the alarm.
 
 A `DarkWake` — the machine coming up for network and mail maintenance with
@@ -222,29 +222,54 @@ machine and exactly when you want it if you are not.
 ## Waking you up
 
 When program 2 runs it rings: it plays the sound macOS makes when a FaceTime
-call arrives, and repeats it every five seconds **until the keyboard or mouse
-is touched**. It does not give up on its own, because a ring that stops is a
-ring that failed to wake anyone. It runs in its own process, so nothing else
-waits on it and the only thing that ends it is a hand on the keyboard.
+call arrives, and repeats it every five seconds **until a key is pressed on the
+keyboard**. That is the only thing that stops it. A ring that stops on its own
+is a ring that failed to wake anyone.
 
-The idle reading is captured *before* the first ring rather than after, so
+The counter is keys only — `CGEventSource.secondsSinceLastEventType` narrowed to
+`.keyDown` — because a hand on the keyboard is what answers the alarm, and a
+trackpad twitch while nobody is there is not.
+
+The first reading is captured *before* the first ring rather than after, so
 that the wake itself, or a `sudo` password typed earlier, cannot be mistaken
-for the user answering. A ring stops when idle drops *below* that baseline,
-meaning new input arrived while the ring was going.
+for the user answering. After that each reading is measured against the one
+before it, not against that first one. The counter is back at zero the instant
+a key lands and climbs again from there, so a tap sampled a few seconds late
+reads as a small number rather than as a fall — and measured against the
+original baseline it would have been missed entirely whenever the user had been
+recently at the keyboard, which is the case that matters most.
 
-Whether input has been idle at all is read from `ioreg`. A locked screen
-counts as idle, because it produces no input either. `--no-ring` turns the
-sound off completely.
+Whether a key has been pressed at all is read from `CGEventSource`. A locked
+screen counts as idle, because it produces no key presses either — and the
+password being typed at the login window is itself the answer. `--no-ring` turns
+the sound off completely.
+
+The speaker is raised before the alarm plays, and only upward: a Mac left
+quiet overnight otherwise rings into silence, and the volume somebody chose is
+not showup's to lower. Anything at or above 20 is left alone; below it, the
+speaker is set to 20. The warning about an inaudible alarm still says what it
+says independently, at its own threshold of 30.
+
+There is no ring count. What ends the ringing without a key is this wake
+running out of value, on the machine's own evidence:
+
+- **The Mac is due to sleep again.** showup reads the idle timers with
+  `pmset -g custom` and gives the alarm that window as its budget — 20 minutes
+  on the machine this was written on. A wake is worth what its window is worth:
+  by the time the machine is going back down, a wake that has not reached
+  anybody has failed, and ringing past that point is ringing at a closed door.
+- **The Mac went back to sleep mid-ring.** `Thread.sleep` counts uptime and does
+  not advance while the system is suspended, so a five second wait returns far
+  later than five seconds in wall clock terms if the machine went down. The
+  alarm stops there rather than resuming a stale ring whenever the Mac next
+  comes up.
+
+Both hand back to the loop, which goes on to arm the next wake. Neither exists
+to be a safety belt; without them the loop would sit parked inside a ring it can
+never finish, and tomorrow's wake would never be asked for.
 
 `afplay` cannot play mp3, so a sound of your own would need to be a wav, aiff,
 caf or m4a rather than an mp3.
-
-The alarm stops when it is answered, and it does not ring for ever. It gives up
-when the machine's own idle window runs out — measured with `pmset -g custom`,
-not assumed — because past that point the display is asleep anyway and further
-ringing achieves nothing. That bound is also what stops the scheduler being
-stranded: it waits for the ringing to finish before bringing the app up, so an
-unbounded alarm would mean tomorrow's wake was never asked for.
 
 ## While the Mac is asleep
 
@@ -319,14 +344,6 @@ which anything `showup` does can be seen or heard. So `showup` logs:
 showup: this Mac sleeps on its own after 20m without input on AC power (displaysleep 20m, sleep 25m)
 ```
 
-The alarm is the only part of the program that can still do something while
-the display is dark, and this number is how long it has. So when it rings,
-showup says how long the alarm has to be answered:
-
-```
-showup: it has 20m before it sleeps again, so the alarm has to be answered before then
-```
-
 This is the one number that says whether a wake can be completed at all, so
 it is read rather than guessed. `PowerSettings` in
 `Sources/ShowupCore/PowerSettings.swift` is the parsing, and it is tested
@@ -346,9 +363,9 @@ on the next wake — the loop carries on unchanged, which the sleep evidence
 below shows happening for two hours.
 
 The cost is a window that is dark until the user touches something. The
-alarm is what closes that gap, and it is unbounded: it rings until a hand
-reaches the keyboard, so the window keeps opening the lead window back up
-for as long as the user needs.
+alarm is what closes that gap: it rings until a key is pressed, or until the
+window this wake was worth has run out, so the window keeps opening the lead
+window back up for as long as the user needs.
 
 ### Experimental evidence
 
@@ -464,7 +481,8 @@ API answers and a log parser infers:
 | Is this wake one somebody can hear? | the same, or the power log if it would not register |
 | Who is at the console? | `SCDynamicStoreCopyConsoleUser` |
 | How long since anyone touched anything? | `CGEventSource.secondsSinceLastEventType` |
-| How loud is the speaker? | CoreAudio `kAudioDevicePropertyVolumeScalar` |
+| How long since a key was pressed? | the same, narrowed to `.keyDown` |
+| How loud is the speaker? | CoreAudio `kAudioDevicePropertyVolumeScalar`, read and written |
 | Wake the Mac at a time | `IOPMSchedulePowerEvent`, taken back with `IOPMCancelScheduledPowerEvent` |
 
 Four things still spawn a process, and each for a stated reason:

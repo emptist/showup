@@ -67,7 +67,10 @@ public enum ShowOutcome: Equatable {
 }
 
 public enum AlarmOutcome: Equatable {
-    /// Somebody answered, or the cap was reached.
+    /// Somebody answered.
     case rung(rings: Int)
+    /// Nobody came back. The machine is about to sleep, or already has, so this
+    /// wake has passed and there is nothing left to ring at.
+    case failed(rings: Int)
     case silent(reason: String)
 }

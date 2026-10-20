@@ -78,6 +78,48 @@ import Testing
         #expect(machine.didWarn("you will not hear it"))
     }
 
+    /// A speaker quieter than the ring volume is raised before the alarm
+    /// plays, because a Mac left quiet overnight otherwise rings into silence.
+    @Test func aQuietSpeakerIsRaisedBeforeRinging() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.volume = 3
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        #expect(machine.volumeWasSetTo == [ringVolume])
+        #expect(machine.said("the speaker was at 3, so it was raised to \(ringVolume)"))
+    }
+
+    /// Raising is only ever upward. The volume somebody chose is not ours.
+    @Test func aLoudSpeakerIsLeftAlone() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.volume = ringVolume
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        #expect(machine.volumeWasSetTo == [])
+    }
+
+    /// There is no alarm, so there is nothing to be heard and nothing to raise.
+    @Test func noRingNeverTouchesTheSpeaker() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.volume = 0
+
+        _ = step(config(hour: 9, ring: false), effects: machine.effects, from: 0)
+
+        #expect(machine.volumeWasSetTo == [])
+        #expect(machine.alarmCount == 0)
+    }
+
     @Test func aLoudEnoughSpeakerSaysNothing() {
         let machine = FakeMachine()
         machine.setClock(0)
@@ -176,23 +218,6 @@ import Testing
         #expect(machine.said("displaysleep 20m, sleep 25m"))
     }
 
-    /// The alarm is only audible while the machine is up, and the machine
-    /// decides that for itself after this many seconds of silence.
-    @Test func saysHowLongTheAlarmCanBeHeardFor() {
-        let machine = FakeMachine()
-        machine.setClock(0)
-        machine.setIdleCounter(300)
-        machine.sleepsDuringWait = true
-        machine.powerSettings = PowerSettings(
-            source: .ac, displaySleepMinutes: 20, systemSleepMinutes: 25, powerNap: true
-        )
-
-        _ = step(config(hour: 9), effects: machine.effects, from: 0)
-
-        #expect(machine.said("20m before it sleeps again"))
-        #expect(machine.didWarn("login") == false)
-    }
-
     // MARK: Surfacing, and who is there to see it
 
     /// Measured: launching the app into the session at the target time, while
@@ -242,10 +267,10 @@ import Testing
         #expect(machine.now == 9 * 3_600 - dayLeadSeconds)
     }
 
-    /// rouse now blocks until the alarm is answered, which means an unbounded
-    /// alarm would strand the loop: nobody comes back, and tomorrow's wake is
-    /// never asked for. The bound is the machine's own idle window, measured.
-    @Test func theRingingIsBoundedByTheIdleWindowSoTheLoopContinues() {
+    /// The alarm is given the machine's own idle window, measured rather than
+    /// assumed: a wake is worth what its window is worth, and by the time the
+    /// Mac is due to sleep again a wake that reached nobody has failed.
+    @Test func theRingingIsBoundedByTheMeasuredIdleWindow() {
         let machine = FakeMachine()
         machine.setClock(0)
         machine.setIdleCounter(300)
@@ -256,24 +281,12 @@ import Testing
 
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
-        // 20 minutes of window, a ring every five seconds.
-        #expect(machine.lastGiveUpAfter == 20 * 60 / 5)
+        #expect(machine.lastBudget == 20 * 60)
     }
 
-    @Test func anUnreadableIdleWindowStillBoundsTheRinging() {
-        let machine = FakeMachine()
-        machine.setClock(0)
-        machine.setIdleCounter(300)
-        machine.sleepsDuringWait = true
-        machine.powerSettings = nil
-
-        _ = step(config(hour: 9), effects: machine.effects, from: 0)
-
-        #expect(machine.lastGiveUpAfter == defaultRouseBudgetSeconds / ringBetweenSeconds)
-    }
-
-    /// A machine set never to sleep on its own has no window to bound by.
-    @Test func aMachineThatNeverSleepsRingsForItsDefaultBudget() {
+    /// A Mac set never to sleep on its own has no window to work to, so the
+    /// alarm is left with only the key press and the machine going down.
+    @Test func aMachineThatNeverSleepsHasNoBudget() {
         let machine = FakeMachine()
         machine.setClock(0)
         machine.setIdleCounter(300)
@@ -284,7 +297,21 @@ import Testing
 
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
-        #expect(machine.lastGiveUpAfter == defaultRouseBudgetSeconds / ringBetweenSeconds)
+        #expect(machine.lastBudget == nil)
+    }
+
+    /// Timers that cannot be read are not the same as timers set to never, and
+    /// both leave the alarm without a deadline rather than with an invented one.
+    @Test func unreadableTimersInventNoBudget() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.powerSettings = nil
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        #expect(machine.lastBudget == nil)
     }
 
     /// Measured: a rouse that waited 53 seconds for somebody to come back was

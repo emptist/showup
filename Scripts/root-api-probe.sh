@@ -45,10 +45,18 @@ if let user = SCDynamicStoreCopyConsoleUser(nil, &uid, &gid) {
 }
 
 // Idle counter: replacement for parsing HIDIdleTime out of ioreg.
-let idle = CGEventSource.secondsSinceLastEventType(
-    .combinedSessionState, eventType: CGEventType(rawValue: ~0)!
-)
-report("CGEventSource idle", String(format: "%.2fs%@", idle, idle > 86_400 ? "  <-- not a real counter" : ""))
+func idle(_ label: String, _ eventType: CGEventType) {
+    let seconds = CGEventSource.secondsSinceLastEventType(
+        .combinedSessionState, eventType: eventType
+    )
+    report(
+        label,
+        String(format: "%.2fs%@", seconds, seconds > 86_400 ? "  <-- not a real counter" : "")
+    )
+}
+idle("CGEventSource idle", CGEventType(rawValue: ~0)!)
+// Keyboard only. The alarm stops on this one, so it has to answer as root.
+idle("CGEventSource idle key", .keyDown)
 
 // Volume: replacement for osascript.
 var device = AudioObjectID(0)
