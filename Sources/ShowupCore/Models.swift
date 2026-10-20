@@ -64,6 +64,10 @@ public enum ShowOutcome: Equatable {
     case launched
     case surfaced
     case failed(String)
+    /// The app was not brought up on purpose: there was no user to bring it
+    /// up to. This is not a failure of the command - the command was never
+    /// run.
+    case notShown(reason: String)
 }
 
 public enum AlarmOutcome: Equatable {

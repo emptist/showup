@@ -63,6 +63,32 @@ extension Mac {
         return Int(seconds)
     }
 
+    /// Whether the login has finished: there is nobody sitting in front of a
+    /// login window, waiting to type a password.
+    ///
+    /// The signal is `kCGSessionLoginDoneKey` in the console user's session
+    /// record. `CGSessionCopyCurrentDictionary` returns that record, but only
+    /// for a process with a window server session, and showup runs as root
+    /// without one - so it is read through `scutil`, which answers as root as
+    /// well as as the user. Measured both ways; see `Scripts/login-state-probe.sh`
+    /// for the recording.
+    ///
+    /// The reading is deliberately conservative: anything that is not a clear
+    /// "yes" is treated as "not finished", because waiting a little longer is
+    /// harmless and bringing the app up into a locked session loses it.
+    public static func loginFinished() -> Bool {
+        guard case .success(let output) = Mac.run(
+            "/usr/sbin/scutil",
+            ["show", "State:/Users/ConsoleUser"],
+            input: "show State:/Users/ConsoleUser\n"
+        ) else { return false }
+        // The record is a dictionary, and the flag is inside the session array
+        // within it. A plain substring is enough: the key is the only place
+        // that word appears.
+        guard output.contains("kCGSessionLoginDoneKey") else { return false }
+        return output.contains("kCGSessionLoginDoneKey : TRUE")
+    }
+
     // MARK: - Speaker volume
 
     /// The default output device.

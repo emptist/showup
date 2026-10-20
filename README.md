@@ -100,6 +100,11 @@ nothing was in front afterwards. The activation does not survive the screen
 coming back. So the ringing is not a courtesy before the work — it is what
 tells us there is somebody there, and the app goes up the moment there is.
 
+And when there is nobody, the app does not go up at all. It is for the user to
+see, so bringing it up for nobody is never useful: the window goes up into
+the session behind the login window, where it is lost. A wake nobody answered
+ends the run, and the loop goes on to arm the next one.
+
 One thing the ringing does not do: it does not bring the app up *early*. If
 the alarm is answered before the required time, the window waits for the time
 to arrive. The alarm says somebody is there; the clock says when the window
@@ -107,8 +112,27 @@ belongs to them.
 
 There is no public API for "is the screen locked": `CGSessionCopyCurrentDictionary`
 has no lock key and returns nothing at all for a process without a window
-server session. The keyboard counter is the signal, and it is already answering
-exactly this question for the alarm.
+server session, and showup runs as root without one. The keyboard counter is
+the signal, and it is already answering exactly this question for the alarm.
+
+There is a second question, though, and the alarm cannot answer it. The alarm
+stops at the *first* key press, and that key press may be the first letter of
+a password typed at the login window. Bringing the app up then loses it: `open`
+reported success into a session whose screen was still locked, and nothing was
+in front after the unlock, because the activation does not survive the screen
+coming back.
+
+So after the alarm is answered, showup waits for the login to finish, and only
+then for the required time. The two waits are different waits and the order
+matters: the window cannot be brought up before the screen comes back, and it
+does not want to wait for the time before the screen comes back either.
+
+The signal is `kCGSessionLoginDoneKey` in the console user's session record.
+`CGSessionCopyCurrentDictionary` returns that record, but only for a process
+with a window server session, so it is read through `scutil` instead, which
+answers as root as well as as the user. `Scripts/login-state-probe.sh` records
+what the machine says over time, in the three states that have to be told
+apart.
 
 A `DarkWake` — the machine coming up for network and mail maintenance with
 the screen still off — is deliberately *not* program 2. Nobody can see or hear
@@ -500,16 +524,21 @@ API answers and a log parser infers:
 | Did the Mac sleep, and did the wake complete? | `IORegisterForSystemPower` |
 | Is this wake one somebody can hear? | the same, or the power log if it would not register |
 | Who is at the console? | `SCDynamicStoreCopyConsoleUser` |
+| Has the login finished? | `scutil show State:/Users/ConsoleUser` |
 | How long since anyone touched anything? | `CGEventSource.secondsSinceLastEventType` |
 | How long since a key was pressed? | the same, narrowed to `.keyDown` |
 | How loud is the speaker? | CoreAudio `kAudioDevicePropertyVolumeScalar`, read and written |
 | Wake the Mac at a time | `IOPMSchedulePowerEvent`, taken back with `IOPMCancelScheduledPowerEvent` |
 
-Four things still spawn a process, and each for a stated reason:
+Five things still spawn a process, and each for a stated reason:
 
 - **`pmset -g custom`** — the configured idle timers.
   `IOPSCopyPowerSettingsInfo` and `IOPMCopyCustomPowerProfiles` are not in the
   SDK, so there is no documented way to read them.
+- **`scutil show State:/Users/ConsoleUser`** — whether the login has finished.
+  The same record `CGSessionCopyCurrentDictionary` returns, read through a
+  shell tool because that API needs a window server session and showup runs as
+  root without one.
 - **`launchctl asuser` + `open -a`** — surfacing an app. `NSWorkspace` and
   `NSRunningApplication` are bound to a window server session, and showup runs
   as root in none.
@@ -569,5 +598,6 @@ somebody needs to read it is not much of a log.
 The `Effects` type is the boundary. If you port `showup` to another runtime or
 another OS, the hooks you need are `now`, `currentDate`, `sleep`,
 `scheduleWake`, `idleSeconds`, `show`, `alarm`, `outputVolume`,
-`powerSettings`, `log` and `warn`. The scheduler core (and its tests) never call macOS APIs
+`setOutputVolume`, `powerSettings`, `wakeKind`, `powerCycle`, `loginFinished`,
+`log` and `warn`. The scheduler core (and its tests) never call macOS APIs
 directly.

@@ -240,6 +240,90 @@ import Testing
         // Answered at 08:59:30, and the window still waited for 09:00.
         #expect(machine.now == 9 * 3_600)
     }
+
+    /// The alarm stops at the first key press, and that key press may be the
+    /// first letter of a password typed at the login window. The app must not
+    /// be brought up before the login has finished, because the activation does
+    /// not survive the screen coming back.
+    @Test func aLoginWindowIsWaitedOutBeforeTheAppIsBroughtUp() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(0)
+        machine.sleepsDuringWait = true
+        machine.alarmTakesSeconds = 30
+        machine.loginIsFinished = false
+        machine.loginFinishesAfter = 3  // three readings before the login is done
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        #expect(machine.said("a login window is up; waiting for the login to finish"))
+        #expect(machine.said("the login has finished"))
+        // The login was waited out before the app was brought up.
+        #expect(machine.shownApps == ["Safari"])
+    }
+
+    /// The two waits are different waits, and the order matters: the login
+    /// first, because the window cannot be brought up before the screen comes
+    /// back, and the clock second, because the window does not belong to the
+    /// user before the time.
+    @Test func theLoginIsWaitedOutBeforeTheRequiredTimeIsWaitedFor() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(0)
+        machine.sleepsDuringWait = true
+        machine.alarmTakesSeconds = 30
+        machine.loginIsFinished = false
+        machine.loginFinishesAfter = 2
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        // The login took two reads of ten seconds, and the clock was then
+        // asked for the remaining time. The window is up at 09:00:00 and not
+        // a second before, and not a second after.
+        #expect(machine.now == 9 * 3_600)
+        #expect(machine.shownApps == ["Safari"])
+        // The two waits are visible in the log, in that order.
+        let login = machine.logLines.firstIndex { $0.contains("the login has finished") }
+        let holding = machine.logLines.firstIndex { $0.contains("holding the window") }
+        #expect(login != nil)
+        #expect(holding != nil)
+        if let login, let holding {
+            #expect(login < holding)
+        }
+    }
+
+    /// A login that never finishes is a person who never came back. The app is
+    /// for the user to see, and there is no user, so it is not brought up.
+    @Test func aLoginThatNeverFinishesBringsUpNothing() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(0)
+        machine.sleepsDuringWait = true
+        machine.alarmTakesSeconds = 30
+        machine.loginIsFinished = false
+        machine.loginFinishesAfter = .max  // never finishes
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        #expect(machine.didWarn("the login did not finish; the window is not brought up"))
+        #expect(machine.shownApps == [])
+    }
+
+    /// Nobody came back for the alarm either. The app is for the user to see,
+    /// and there is no user, so nothing is brought up at all - not even into
+    /// the session behind the login window.
+    @Test func nobodyComingBackBringsUpNothing() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(0)
+        machine.sleepsDuringWait = true
+        machine.alarmOutcome = .failed(rings: 12)
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        #expect(machine.said("rang 12 times and nobody came back; this wake has passed"))
+        #expect(machine.shownApps == [])
+    }
     /// Nobody is waiting for the clock when they are awake and at the machine.
     @Test func anAwakeMachineStillGetsTheAppOnTime() {
         let machine = FakeMachine()

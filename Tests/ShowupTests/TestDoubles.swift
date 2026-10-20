@@ -50,8 +50,17 @@ final class FakeMachine: @unchecked Sendable {
     var wakeKind: WakeKind = .full
     /// How long the alarm takes to be answered, in seconds of the fake clock.
     var alarmTakesSeconds = 0
+    /// What the alarm reports when it is done. A wake nobody answered is a
+    /// failure, and the app is not brought up for it.
+    var alarmOutcome: AlarmOutcome = .rung(rings: 3)
     private(set) var lastBudget: Int?
     var powerCycle: PowerCycle? = PowerCycle(willSleep: true, hasPoweredOn: true)
+    /// Whether the login has finished. A machine that was asleep and woke to a
+    /// login window has not finished it until the password is typed.
+    var loginIsFinished = true
+    /// How many readings of the login state it takes before the login finishes.
+    var loginFinishesAfter = 0
+    private var loginReadings = 0
     private(set) var requestedAt: Int?
 
     // Outcomes the tests assert on
@@ -81,7 +90,7 @@ final class FakeMachine: @unchecked Sendable {
                 // The alarm rings until somebody answers, and only then is
                 // there anybody to show an app to.
                 self.recordSleep(self.alarmTakesSeconds)
-                return .rung(rings: 3)
+                return self.alarmOutcome
             },
             outputVolume: { [self] in .success(self.volume) },
             setOutputVolume: { [self] percent in
@@ -91,6 +100,7 @@ final class FakeMachine: @unchecked Sendable {
             powerSettings: { [self] in self.powerSettings },
             wakeKind: { [self] in self.recordWakeKind($0) },
             powerCycle: { [self] in self.powerCycle },
+            loginFinished: { [self] in self.readLoginState() },
             log: { [self] in self.logLines.append($0) },
             warn: { [self] in self.warnings.append($0) }
         )
@@ -130,6 +140,16 @@ final class FakeMachine: @unchecked Sendable {
         lock.withLock {
             shownApps.append(app)
             return showOutcomes.count > 1 ? showOutcomes.removeFirst() : showOutcomes[0]
+        }
+    }
+
+    /// The login state, as a machine would report it: finished, or not until
+    /// enough readings have gone by.
+    private func readLoginState() -> Bool {
+        lock.withLock {
+            guard !loginIsFinished else { return true }
+            loginReadings += 1
+            return loginReadings > loginFinishesAfter
         }
     }
 

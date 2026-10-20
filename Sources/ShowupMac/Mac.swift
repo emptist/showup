@@ -15,19 +15,35 @@ enum Mac {
     /// forever, and the parent is blocked in `waitUntilExit` waiting for it.
     @discardableResult
     static func run(_ executable: String, _ arguments: [String]) -> Result<String, ShowError> {
+        run(executable, arguments, input: nil)
+    }
+
+    /// Runs a command, writes a query to it, and collects everything it wrote.
+    ///
+    /// `scutil` reads its query from standard input and answers nothing at all
+    /// when it is given as an argument, so it needs this form.
+    @discardableResult
+    static func run(_ executable: String, _ arguments: [String], input: String?) -> Result<String, ShowError> {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
-        process.standardInput = FileHandle.nullDevice
 
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
 
+        let inputPipe: Pipe? = input == nil ? nil : Pipe()
+        process.standardInput = inputPipe ?? FileHandle.nullDevice
+
         do {
             try process.run()
         } catch {
             return .failure(.unavailable(what: executable, reason: "\(error)"))
+        }
+
+        if let inputPipe, let input {
+            inputPipe.fileHandleForWriting.write(Data(input.utf8))
+            inputPipe.fileHandleForWriting.closeFile()
         }
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()

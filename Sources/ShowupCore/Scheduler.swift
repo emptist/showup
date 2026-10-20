@@ -93,13 +93,71 @@ public func step(_ config: Config, effects: Effects, from now: Int) -> Step {
         // survive the screen coming back. So the alarm is not a courtesy before
         // the work; it is the thing that tells us there is somebody there, and
         // the app goes up the moment there is.
-        rouse(config, effects, requestedAt: requestedAt)
-        holdUntilTheTime(effects, since: started, wait: wait)
-        return .surfaced(wake: wake, showed: surface(config.app, effects))
+        switch rouse(config, effects, requestedAt: requestedAt) {
+        case .answered:
+            // Somebody is there. The key press that stopped the alarm may have
+            // been the first letter of a password, so the login is waited out
+            // before the app is brought up - the activation does not survive the
+            // screen coming back.
+            guard waitForTheLogin(effects) else {
+                return .surfaced(wake: wake, showed: .notShown(reason: "the login did not finish"))
+            }
+            holdUntilTheTime(effects, since: started, wait: wait)
+            return .surfaced(wake: wake, showed: surface(config.app, effects))
+        case .nobodyCame:
+            // The app is for the user to see, and there is no user. The run
+            // ends here, and the loop goes on to arm the next wake.
+            return .surfaced(wake: wake, showed: .notShown(reason: "nobody came back"))
+        case .notRung:
+            // Nothing was rung, so nothing is known about whether somebody is
+            // there. Phase one still happens: the app is surfaced on the time.
+            holdUntilTheTime(effects, since: started, wait: wait)
+            return .surfaced(wake: wake, showed: surface(config.app, effects))
+        }
     }
 
     holdUntilTheTime(effects, since: started, wait: wait)
     return .surfaced(wake: wake, showed: surface(config.app, effects))
+}
+
+/// Waits for the login to finish, if there is one.
+///
+/// The alarm stops at the first key press, and that key press may be the first
+/// letter of a password typed at the login window. Bringing the app up then
+/// would lose it: the activation does not survive the screen coming back, and
+/// the app is launched into a session nobody is looking at yet.
+///
+/// So this is a wait of its own, and it is not the same wait as the clock's.
+/// The clock says when the window belongs to the user; the login says whether
+/// there is a user in front of the screen to receive it. Both have to be
+/// satisfied, and the login is settled first: the window cannot be brought up
+/// before the screen comes back, and it does not want to wait for the time
+/// before the screen comes back either.
+///
+/// The wait is bounded by the same idle window the alarm is given. A person who
+/// never types the password is not coming back, and the wake has failed like
+/// any other.
+///
+/// The bound is the machine's own idle timer, read rather than assumed, and
+/// `nil` when the timers cannot be read: an unreadable timer is not a timer
+/// of zero, and a window of zero would skip a login that finishes a second
+/// later. Without a bound the wait ends when the machine goes down, which the
+/// alarm's own budget already accounts for.
+private func waitForTheLogin(_ effects: Effects) -> Bool {
+    guard !effects.loginFinished() else { return true }
+    effects.log("a login window is up; waiting for the login to finish")
+    let budget = effects.powerSettings()?.idleWindowSeconds
+    var waited = 0
+    while !effects.loginFinished() {
+        if let budget, waited >= budget {
+            effects.warn("the login did not finish; the window is not brought up")
+            return false
+        }
+        effects.sleep(sleepStepSeconds)
+        waited += sleepStepSeconds
+    }
+    effects.log("the login has finished")
+    return true
 }
 
 /// Holds the window until the required time has arrived.
@@ -155,12 +213,27 @@ private func reportIdleWindow(_ effects: Effects) {
     for warning in report.warnings { effects.warn(warning) }
 }
 
+/// What the rouse found.
+private enum Rouse {
+    /// Somebody answered: a hand reached the keyboard and stopped the alarm.
+    case answered
+    /// The alarm rang and nobody came back. The machine is going back to
+    /// sleep, this wake has failed, and there is no user to bring the app up
+    /// to.
+    case nobodyCame
+    /// No alarm was possible or wanted: a DarkWake, a wake that did not
+    /// complete, or `--no-ring`. Phase one still happens - the app is surfaced
+    /// on the time, because a quiet alarm says nothing about whether somebody
+    /// is there.
+    case notRung
+}
+
 /// Program 2. Rings until somebody answers, then returns.
 ///
 /// This blocks on purpose. The caller has nothing else to do until there is
 /// somebody to show an app to, and waiting here is what makes the app appear
 /// when they are back rather than at a time they were not there for.
-private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) {
+private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) -> Rouse {
     // The kernel's own account comes first, and when it speaks it decides alone:
     // it says which of the two things actually happened. The power log is only
     // consulted when the kernel would not say.
@@ -171,7 +244,7 @@ private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) {
         )
         guard cycle.completedFullWake else {
             effects.log("so nothing completed that a person could answer; not ringing")
-            return
+            return .notRung
         }
     } else {
         let wake = effects.wakeKind(requestedAt)
@@ -181,7 +254,7 @@ private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) {
             // still off. Nobody can hear this, so ringing would be a sound in
             // an empty house, and it would spend the alarm.
             effects.log("this was a DarkWake, so nothing can be heard or seen; not ringing")
-            return
+            return .notRung
         case .unknown:
             effects.log("could not tell what kind of wake this was, so ringing anyway")
         case .full:
@@ -207,16 +280,20 @@ private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) {
             effects.log(
                 "rang \(rings) times to be heard; somebody is back"
             )
+            return .answered
         case .failed(let rings):
             effects.log(
                 "rang \(rings) times and nobody came back; this wake has passed"
             )
+            return .nobodyCame
         case .silent(let reason):
             effects.warn("could not ring: \(reason)")
+            return .notRung
         }
     } else {
         effects.log("--no-ring was given, staying quiet")
     }
+    return .notRung
 }
 
 /// An alarm nobody can hear is the worst failure this program has, and nothing
@@ -248,6 +325,7 @@ private func surface(_ app: String, _ effects: Effects) -> ShowOutcome {
     case .launched: effects.log("launched \(app)")
     case .surfaced: effects.log("brought \(app) to the foreground")
     case .failed(let reason): effects.warn("could not show \(app): \(reason)")
+    case .notShown(let reason): effects.log("did not show \(app): \(reason)")
     }
     return showed
 }

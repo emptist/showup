@@ -32,6 +32,9 @@ public struct Effects: Sendable {
     public var wakeKind: @Sendable (Int?) -> WakeKind
     /// What the kernel announced, or nil when the kernel would not say.
     public var powerCycle: @Sendable () -> PowerCycle?
+    /// Whether the login has finished: nobody is sitting in front of a login
+    /// window, waiting to type a password.
+    public var loginFinished: @Sendable () -> Bool
     public var log: @Sendable (String) -> Void
     public var warn: @Sendable (String) -> Void
 
@@ -48,6 +51,7 @@ public struct Effects: Sendable {
         powerSettings: @escaping @Sendable () -> PowerSettings?,
         wakeKind: @escaping @Sendable (Int?) -> WakeKind,
         powerCycle: @escaping @Sendable () -> PowerCycle?,
+        loginFinished: @escaping @Sendable () -> Bool,
         log: @escaping @Sendable (String) -> Void,
         warn: @escaping @Sendable (String) -> Void
     ) {
@@ -63,6 +67,7 @@ public struct Effects: Sendable {
         self.powerSettings = powerSettings
         self.wakeKind = wakeKind
         self.powerCycle = powerCycle
+        self.loginFinished = loginFinished
         self.log = log
         self.warn = warn
     }
