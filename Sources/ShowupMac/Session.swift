@@ -134,7 +134,7 @@ extension Mac {
             mScope: kAudioObjectPropertyScopeOutput,
             mElement: 0
         )
-        var volumeSize = UInt32(MemoryLayout<Float32>.size)
+        let volumeSize = UInt32(MemoryLayout<Float32>.size)
         let status = withUnsafeMutablePointer(to: &volumeAddress) { address in
             AudioObjectSetPropertyData(device, address, 0, nil, volumeSize, &volume)
         }
