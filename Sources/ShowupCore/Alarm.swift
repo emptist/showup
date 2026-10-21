@@ -23,8 +23,8 @@ public struct AlarmOptions: Equatable, Sendable {
     }
 }
 
-/// What the alarm needs from the machine. It runs on its own queue and must
-/// not need anything else.
+/// What the alarm needs from the machine. It blocks the caller on purpose, so
+/// it must not need anything else.
 public protocol AlarmEffects: Sendable {
     /// Seconds since local midnight, to tell a wait that ended on time from one
     /// the machine spent asleep.

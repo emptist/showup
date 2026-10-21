@@ -37,10 +37,7 @@ final class FakeMachine: @unchecked Sendable {
     /// Outcomes handed back by `show`, in order. The last one repeats.
     private var showOutcomes: [ShowOutcome] = [.surfaced]
 
-    private(set) var desktopPolls = 0
-
     // Scripted behaviour
-    var loginSeconds = 0
     var volume = 50
     private(set) var volumeWasSetTo: [Int] = []
     var powerSettings: PowerSettings? = PowerSettings(
@@ -64,7 +61,6 @@ final class FakeMachine: @unchecked Sendable {
     private(set) var requestedAt: Int?
 
     // Outcomes the tests assert on
-    private let alarmRan = DispatchSemaphore(value: 0)
     private(set) var alarmCount = 0
     private(set) var logLines: [String] = []
     private(set) var warnings: [String] = []
@@ -85,7 +81,6 @@ final class FakeMachine: @unchecked Sendable {
             show: { [self] app in self.recordShow(app) },
             alarm: { [self] budget in
                 self.lastBudget = budget
-                self.alarmRan.signal()
                 self.alarmCount += 1
                 // The alarm rings until somebody answers, and only then is
                 // there anybody to show an app to.
@@ -168,18 +163,8 @@ final class FakeMachine: @unchecked Sendable {
         }
     }
 
-    /// Input arriving, which resets the counter to where it started.
-    func touchKeyboard() {
-        lock.withLock { idleCounter = 0 }
-    }
-
     func setClock(_ seconds: Int) {
         lock.withLock { clockSeconds = seconds % secondsPerDay }
-    }
-
-    /// The alarm runs on its own queue, so a test has to let it be dispatched.
-    func waitForAlarm() {
-        _ = alarmRan.wait(timeout: .now() + 5)
     }
 
     /// The logged and warned text, for a test that cares about wording.

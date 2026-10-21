@@ -7,7 +7,8 @@ public func run(_ config: Config, effects: Effects) {
     var instant = effects.now()
     while true {
         switch step(config, effects: effects, from: instant) {
-        case .surfaced(let wake, _):
+        // The payloads are what a test asserts on; the loop needs neither.
+        case .surfaced:
             // Step past the wake that was just handled, on the machine's own
             // clock, rather than on the scheduled one.
             //
@@ -22,7 +23,6 @@ public func run(_ config: Config, effects: Effects) {
             // on its own: `nextWake` reads the clock, and a time in the past
             // is tomorrow's. So the same wake is not served twice.
             instant = effects.now()
-            _ = wake
         case .idle:
             return
         }
@@ -33,9 +33,9 @@ public func run(_ config: Config, effects: Effects) {
 public enum Step: Equatable {
     /// Slept until `wake.at`, then surfaced the app.
     ///
-    /// There is no field for what the alarm did: it runs on its own queue and
-    /// reports by logging, so by the time this is built there is nothing
-    /// truthful left to record.
+    /// There is no field for what the alarm did. It runs inside `rouse`, which
+    /// has already returned by the time this is built, and it reports by
+    /// logging, so there is nothing truthful left to record here.
     case surfaced(wake: Wake, showed: ShowOutcome)
     /// There are no times to wait for.
     case idle
@@ -57,10 +57,20 @@ public func step(_ config: Config, effects: Effects, from now: Int) -> Step {
     // later one a minute early too, because each wait was measured from the
     // scheduled time rather than from where the machine actually was.
     //
-    // The wait is bounded by a day. A negative one means the machine's clock
-    // is already past the required time, which is late and allowed: the window
-    // goes up at once.
-    let wait = max(0, min(wake.delay + (now - started), secondsPerDay - 1))
+    // The seconds that passed between the two readings are counted forward
+    // round the clock, because both of them are times of day: two readings
+    // either side of midnight are a second or two apart, and a bare subtraction
+    // would read them as most of a day apart and hold the window until
+    // tomorrow. Counting them also keeps the whole wait inside one day, so no
+    // clamp is needed: `wake.delay` is at most a day and the correction only
+    // ever shortens it. A time whose moment has already arrived - including one
+    // that has arrived exactly, which `nextWake` answers with a whole day -
+    // keeps the whole day, and a window served a second early used to be what a
+    // clamp of a day-minus-one did to it.
+    //
+    // A negative wait means the machine's clock is already past the required
+    // time, which is late and allowed: the window goes up at once.
+    let wait = max(0, wake.delay - secondsBetween(now, started))
     // The kernel is asked to bring the Mac back a lead before the required
     // time, so that the display coming up, the person waking and the password
     // all happen inside the window rather than in the minute the app was
@@ -262,9 +272,12 @@ private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) -> Ro
         }
     }
 
-    checkAudible(effects)
-
     if config.ring {
+        // Only where there is an alarm to hear. Under `--no-ring` nothing plays
+        // at all, so a quiet speaker is not a failure this program has, and
+        // warning about it would be a warning about nothing.
+        checkAudible(effects)
+
         // A wake is worth what its window is worth. This is the machine's own
         // idle timer, measured with `pmset -g custom`: by the time the Mac is
         // due to sleep again, a wake that has not reached anybody has failed,

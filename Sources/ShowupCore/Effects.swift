@@ -3,9 +3,9 @@ import Foundation
 /// The boundary between the scheduler and the world.
 ///
 /// Every value here is `@Sendable`, so the scheduler can hand the whole set to
-/// the alarm's own queue without copying anything or worrying about what it
-/// captures. Tests build one of these with a fake clock and a fake Mac, which is
-/// the only reason the scheduler can be tested at all.
+/// the alarm without copying anything or worrying about what it captures. Tests
+/// build one of these with a fake clock and a fake Mac, which is the only
+/// reason the scheduler can be tested at all.
 public struct Effects: Sendable {
     /// Seconds since local midnight.
     public var now: @Sendable () -> Int

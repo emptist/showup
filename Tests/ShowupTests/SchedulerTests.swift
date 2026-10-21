@@ -28,7 +28,6 @@ import Testing
         #expect(machine.shownApps == ["Safari"])
         #expect(machine.said("the Mac was awake throughout"))
 
-        machine.waitForAlarm()
         #expect(machine.alarmCount == 0)
     }
 
@@ -42,7 +41,6 @@ import Testing
 
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
-        machine.waitForAlarm()
         #expect(machine.alarmCount == 1)
         #expect(machine.said("the Mac was asleep"))
         #expect(machine.shownApps == ["Safari"])
@@ -58,7 +56,6 @@ import Testing
 
         _ = step(config(hour: 9, ring: false), effects: machine.effects, from: 0)
 
-        machine.waitForAlarm()
         #expect(machine.alarmCount == 0)
         #expect(machine.said("--no-ring was given, staying quiet"))
         // The app is still surfaced. -q is about the sound, not the surfacing.
@@ -76,6 +73,23 @@ import Testing
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
         #expect(machine.didWarn("you will not hear it"))
+    }
+
+    /// The warning is about an alarm nobody can hear, so it belongs where there
+    /// is an alarm. `--no-ring` plays nothing at all, and a speaker that is too
+    /// quiet for a sound that never comes is not a failure this program has.
+    @Test func noRingDoesNotWarnAboutASpeakerItWillNotUse() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.volume = 13  // below quietVolume, and irrelevant
+
+        _ = step(config(hour: 9, ring: false), effects: machine.effects, from: 0)
+
+        #expect(!machine.didWarn("you will not hear it"))
+        #expect(machine.alarmCount == 0)
+        #expect(machine.shownApps == ["Safari"])
     }
 
     /// A speaker quieter than the ring volume is raised before the alarm
@@ -117,6 +131,7 @@ import Testing
         _ = step(config(hour: 9, ring: false), effects: machine.effects, from: 0)
 
         #expect(machine.volumeWasSetTo == [])
+        #expect(!machine.didWarn("you will not hear it"))
         #expect(machine.alarmCount == 0)
     }
 
@@ -369,6 +384,40 @@ import Testing
         #expect(machine.shownApps == ["Safari"])
     }
 
+    /// The two clock readings a wait is corrected by are a moment apart, and a
+    /// moment can straddle midnight. Counting the seconds that passed forward
+    /// round the clock is what stops that from reading as most of a day: a bare
+    /// subtraction would hold the window until tomorrow over a one second wait.
+    @Test func aWaitThatStraddlesMidnightIsNotAWholeDay() {
+        let machine = FakeMachine()
+        // The machine has just crossed into the day, and the caller's reading is
+        // from the last second of the one before it.
+        machine.setClock(0)
+        machine.sleepsDuringWait = false
+
+        _ = step(config(hour: 0), effects: machine.effects, from: secondsPerDay - 1)
+
+        // Midnight has arrived, so the window goes up now and not in a day.
+        #expect(machine.now == 0)
+        #expect(machine.shownApps == ["Safari"])
+    }
+
+    /// A time whose moment has arrived exactly is tomorrow's, by the same rule
+    /// `nextWake` answers it with: a whole day. The wait used to be clamped a
+    /// second short of a day, which put the window up one second before the time
+    /// it exists for - the one way this program can be early.
+    @Test func aTimeWhoseMomentIsExactlyNowWaitsTheWholeDay() {
+        let machine = FakeMachine()
+        machine.setClock(9 * 3_600)
+        machine.sleepsDuringWait = false
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 9 * 3_600)
+
+        // 09:00 tomorrow, to the second, and not 08:59:59.
+        #expect(machine.now == 9 * 3_600)
+        #expect(machine.shownApps == ["Safari"])
+    }
+
     /// The same hold runs in the sleeping case: answered, and still not early.
     @Test func anAnsweredAlarmStillShowsAtTheRequiredTime() {
         let machine = FakeMachine()
@@ -548,7 +597,6 @@ import Testing
 
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
-        machine.waitForAlarm()
         #expect(machine.alarmCount == 0)
         #expect(machine.said("this was a DarkWake, so nothing can be heard or seen"))
         // Phase one still happens: the app is surfaced on time regardless.
@@ -568,7 +616,6 @@ import Testing
 
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
-        machine.waitForAlarm()
         #expect(machine.alarmCount == 0)
         #expect(machine.said("no completed wake"))
         #expect(machine.shownApps == ["Safari"])
@@ -585,7 +632,6 @@ import Testing
 
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
-        machine.waitForAlarm()
         #expect(machine.alarmCount == 1)
         #expect(machine.said("the wake completed"))
     }
@@ -601,7 +647,6 @@ import Testing
 
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
-        machine.waitForAlarm()
         #expect(machine.alarmCount == 0)
     }
 
@@ -616,7 +661,6 @@ import Testing
 
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
-        machine.waitForAlarm()
         #expect(machine.alarmCount == 0)
         #expect(machine.said("this was a DarkWake"))
     }
@@ -631,7 +675,6 @@ import Testing
 
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
-        machine.waitForAlarm()
         #expect(machine.alarmCount == 1)
         #expect(machine.said("could not tell what kind of wake this was, so ringing anyway"))
     }
@@ -646,7 +689,6 @@ import Testing
 
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
-        machine.waitForAlarm()
         #expect(machine.alarmCount == 1)
     }
 

@@ -55,24 +55,6 @@ import Testing
 // MARK: - The lead window
 
 @Suite struct LeadTests {
-    @Test func takesTheLeadOffTheFront() {
-        let split = leadSplit(delaySeconds: 3 * 3_600, leadSeconds: 300)
-        #expect(split.ahead == 3 * 3_600 - 300)
-        #expect(split.remaining == 300)
-    }
-
-    @Test func leavesAWindowShorterThanTheLeadWhole() {
-        let split = leadSplit(delaySeconds: 40, leadSeconds: 300)
-        #expect(split.ahead == 40)
-        #expect(split.remaining == 0)
-    }
-
-    @Test func treatsAnExactLeadLengthAsAllLead() {
-        let split = leadSplit(delaySeconds: 300, leadSeconds: 300)
-        #expect(split.ahead == 0)
-        #expect(split.remaining == 300)
-    }
-
     @Test(arguments: [(9, 60), (16, 60), (21, 60), (22, 300), (2, 300), (7, 60), (0, 300)])
     func givesAMorningAMinuteAndAnEveningFive(hour: Int, expected: Int) {
         #expect(leadFor(hour: hour) == expected)

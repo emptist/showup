@@ -9,9 +9,12 @@ launched for you.
 sudo showup -a Safari -t 8:00,12:00,16:00,20:00
 ```
 
-The `sudo` is needed for exactly one thing: asking the power-management system
-to wake the Mac out of sleep, which only root may do. Everything else — reading
-the sleep evidence, ringing, surfacing the app — works as your normal user.
+The `sudo` is needed for two things, and both of them are root's alone: asking
+the power-management system to wake the Mac out of sleep, and creating the log
+file under `/var/log`. Everything else is done as your normal user — the sleep
+evidence is read from APIs that answer the same either way, the alarm plays at
+the speaker, and the app is surfaced by `launchctl asuser` into the console
+user's session rather than into root's.
 
 `showup` works out when the next of your times is, asks the kernel to wake the
 Mac a little before it, and then brings the application to the front. If the
@@ -64,6 +67,11 @@ already up, where you are assumed to be present and looking.
 Both `--flag value` and `--flag=value` are accepted, repeated `-t` flags are
 combined, and times are sorted and deduplicated.
 
+`24:00` is the end of the day, which is the same moment as `0:00`, the start of
+the next one. They are two spellings of one time: `-t 24:00` and `-t 0:00` mean
+the same thing, and `-t 24:00,0:00` is one entry rather than two, because both
+are parsed to midnight before the list is deduplicated.
+
 The list of times has to be one argument, because the shell splits a list with
 spaces after the commas into several of them:
 
@@ -87,8 +95,10 @@ is depends on something the clock cannot tell you: whether the Mac spent the
 wait asleep. So `showup` asks the power log, and branches.
 
 **Program 1 — surface.** The machine was up the whole time. Someone is very
-likely sitting at it. Raise the window, and stop. No sound, no waiting, no
-ceremony. This is the whole job, and it is the job most wakes want.
+likely sitting at it. Bring the app to the front, and stop. No sound, no login
+wait, no ceremony. This is the whole job, and it is the job most wakes want.
+(The clock is still held to the required time. That is the time itself rather
+than a wait for anybody.)
 
 **Program 2 — rouse.** The Mac was asleep and this is the wake we asked for.
 Ring, until a hand reaches the keyboard. Then bring the app up.
@@ -132,7 +142,10 @@ The signal is `kCGSessionLoginDoneKey` in the console user's session record.
 with a window server session, so it is read through `scutil` instead, which
 answers as root as well as as the user. `Scripts/login-state-probe.sh` records
 what the machine says over time, in the three states that have to be told
-apart.
+apart, and `Scripts/lock-state-probe.sh` samples the same signals every two
+seconds for the narrower question of which of them moves when the screen locks
+— the distinction between locked and logged in, which is the one this wait
+turns on.
 
 A `DarkWake` — the machine coming up for network and mail maintenance with
 the screen still off — is deliberately *not* program 2. Nobody can see or hear
@@ -246,10 +259,13 @@ alarm is slept out, so the window still goes up on the time — a measured run p
 TextEdit in front at 10:35:02 against a 10:35:00 target, two seconds, inside
 one ten second step.
 
-The window never goes up **before** the required time, whichever program ran.
-An alarm answered at 20:59:30 for a 21:00 window waits the remaining half
-minute; a machine that was up the whole time waits out the whole lead. Late is
-possible, early is not.
+The window never goes up **before** the required time, whichever program ran —
+and that is the only thing in this program which must not be early. The wake
+itself is early on purpose: the lead window exists so that the display coming
+up, the person waking and the password are all finished before the minute the
+app belongs in. An alarm answered at 20:59:30 for a 21:00 window waits the
+remaining half minute; a machine that was up the whole time waits out the whole
+lead. Late is possible, early is not.
 
 The wait is counted on the machine's own clock, and the loop carries that clock
 forward rather than the scheduled time. It matters: a window served a minute
@@ -258,6 +274,17 @@ was measured from the time the window was *aimed* at rather than from where the
 machine actually was. A real run put the app up at 20:59:00, 21:59:00,
 22:59:00 and 23:54:02 against 21:00, 22:00, 23:00 and 00:00 — four windows,
 four minutes early, one after another.
+
+Twice a year the clock is not a clock. On the night daylight saving ends, 02:00
+happens twice; on the night it starts, 02:00 does not happen at all. Every wait
+here is counted in seconds since local midnight, so a hold that spans the change
+reads the hour as either twenty-three hours of waiting or one hour of it, and
+the window goes up accordingly — late on one of those nights, early on the
+other. The wake itself is handed to `pmset` in calendar terms, which does handle
+it; the counting does not. Only a window being held across 02:00 is affected,
+which is two nights a year at most. It is written down because it is the one
+place where "early is not" has a hole in it, and the fix is a change of clock
+model rather than a patch to one loop.
 
 When the Mac had been asleep the app goes up when the ringing stops, which is
 later than the target if you are away from the machine and exactly when you
@@ -470,10 +497,11 @@ replaces the 5-minute gap of the test; the mechanism is the same.
    check is a claim, and this project has already shipped several.
 
 3. **The `Effects` type is the boundary.** If you port `showup` to another
-   runtime or another OS, the two hooks you need are `slept_during`, which
-   reports what the machine was doing while we waited, and `show`, which puts
-   the window up. The scheduler core (and its tests) never call macOS APIs
-   directly.
+   runtime or another OS, the two questions you have to answer are what the
+   machine was doing while we waited — `idleSeconds`, read twice and decided by
+   `sleepEvidence`, with `powerCycle` and `wakeKind` as the other two witnesses
+   — and putting the window up, which is `show`. The scheduler core (and its
+   tests) never call macOS APIs directly.
 
 ## How it works
 
@@ -482,6 +510,12 @@ It launches the app if it is not running, and if it is, macOS activates it
 through LaunchServices, which brings its windows to the front and gives it
 focus. No permission needs to be granted for this, in Terminal or anywhere
 else.
+
+"To the front" is the whole of what it does. This activates the application;
+which of its windows ends up frontmost is the application's own business,
+decided the same way it would be if you clicked its icon in the Dock. Choosing
+one particular window among several would need the Accessibility API and a
+permission grant, and nothing here needs that.
 
 `pmset -g custom` and `pmset -g ps` are read once at startup for the idle
 timers; `lsappinfo` is asked whether the app was already running, purely so

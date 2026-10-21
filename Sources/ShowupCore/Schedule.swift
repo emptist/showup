@@ -14,15 +14,12 @@ public let quietVolume = 30
 /// than this.
 public let ringVolume = 20
 
-/// Whether the kernel is told to wake at `ahead` or `delay`, and how much of the
-/// window is left afterwards for the rousing and the wait.
-public func leadSplit(delaySeconds: Int, leadSeconds: Int) -> (ahead: Int, remaining: Int) {
-    if delaySeconds >= leadSeconds {
-        return (delaySeconds - leadSeconds, leadSeconds)
-    }
-    return (delaySeconds, 0)
-}
-
+/// How long before a wake the kernel is asked to bring the Mac back, for the
+/// hour the required time falls in.
+///
+/// The scheduler takes the whole lead off the front of the wait, so a wait
+/// shorter than the lead is not woken for at all and the window simply waits for
+/// the time it exists for.
 public func leadFor(hour: Int) -> Int {
     isNight(hour) ? nightLeadSeconds : dayLeadSeconds
 }

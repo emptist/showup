@@ -12,7 +12,7 @@ public enum SleepEvidence: Equatable {
     case inputArrived
     /// The counter barely moved while the wall clock ran on.
     case slept
-    /// `ioreg` could not be read, so nothing is known.
+    /// The idle counter could not be read, so nothing is known.
     case unreadable
 
     /// A wake we should treat as having had to rouse somebody. Unknown counts
