@@ -123,7 +123,8 @@ machine that has not been observed to register.
 ### 10. The clock is a time of day, and a time of day is not monotonic
 
 Every wait in this program was counted in seconds since local midnight, and the
-counting assumed the clock only moves forward. Twice a year it does not:
+counting assumed the clock only moves forward. In a zone that observes daylight
+saving, twice a year it does not:
 
 - **Spring forward.** The clock jumps from 02:00 to 03:00, so two adjacent
   readings are an hour apart with no time having passed. `holdUntilTheTime`
@@ -144,11 +145,19 @@ for midnight at all. Evidence keeps the wall clock, deliberately: the
 monotonic clock stops while the Mac is suspended, and the seconds a sleep cost
 are exactly what the idle counter is asked about.
 
+The zone is the system's, read through `Calendar.autoupdatingCurrent` so a
+change of setting is followed while the daemon runs. A zone without the changes
+— mainland China since 1991 — is tested against the same two nights, where the
+wait is the plain distance the wall clock says, and the same night is asserted
+to read differently in New York: the system's timezone is what says when a
+requirement is, and the answer belongs to the zone it was asked in.
+
 Four tests, each of which fails without the change: two against New York's
 spring and autumn, where the wait is checked against the hours that actually
 pass, and two where the wall clock jumps inside a running hold
 (`clockJumpsOnSleep` on the test double) and the wait is checked against the
-seconds that really went by.
+seconds that really went by. Three more pin the zone itself (`NoDaylightSavingTests`),
+and one pins the `--dry-run` plan to the same instants.
 
 ## Not artificial
 

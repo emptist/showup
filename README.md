@@ -275,10 +275,15 @@ machine actually was. A real run put the app up at 20:59:00, 21:59:00,
 22:59:00 and 23:54:02 against 21:00, 22:00, 23:00 and 00:00 — four windows,
 four minutes early, one after another.
 
-Twice a year the clock is not a clock. On the night daylight saving ends, 02:00
-happens twice; on the night it starts, 02:00 does not happen at all. A time of
-day is therefore not a duration, and the two kinds of second are kept apart on
-purpose:
+Which timezone this is, is the system's: every moment in this program is read
+through `Calendar` on the machine's own setting, followed live, so a Mac that
+is carried to another zone is read in that zone from then on. In a zone that
+observes daylight saving — mainland China has not observed it since 1991, and
+neither do most of the world's zones — the clock is not a clock twice a year:
+on the night it ends, 02:00 happens twice; on the night it starts, 02:00 does
+not happen at all. Where there is no change, the calendar is a plain calendar
+and there is nothing to be right about. Where there is, a time of day is not a
+duration, and the two kinds of second are kept apart on purpose:
 
 - **A requirement is a moment, and the calendar says when it is.** The wait is
   the distance from now to that moment, computed with
@@ -299,6 +304,11 @@ Both directions of the failure this replaced are tested: two against a timezone
 that has the changes (New York, spring and autumn), where the wait is checked
 against the hours that actually pass, and two where the wall clock jumps inside
 a running hold and the wait is checked against the seconds that really went by.
+And two more against a zone that has no changes at all (Shanghai, on the same
+two nights), where the wait is the plain distance the wall clock says — which
+is what keeps a later change from quietly assuming a zone. The `--dry-run`
+delays are counted the same way, to the instant rather than between two times
+of day, for the same reason.
 
 When the Mac had been asleep the app goes up when the ringing stops, which is
 later than the target if you are away from the machine and exactly when you

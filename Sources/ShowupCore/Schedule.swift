@@ -52,12 +52,16 @@ public func nextWake(_ times: [TimeOfDay], from now: Int) -> Wake? {
 /// which of those hours exist - so a wait measured to the instant is measured
 /// in the seconds that will actually pass.
 ///
+/// The calendar is the system's, followed live, so which zone the moment is
+/// read in is the machine's business. In a zone without daylight saving there
+/// is no such day, and the instant is simply the time of day it says it is.
+///
 /// A moment that has already arrived today is tomorrow's, by the same rule
 /// `nextWake` answers it with: a whole day of delay. That includes the moment
 /// that is arriving exactly now, which is what keeps a window served a second
 /// early from being what a clamp of a day-minus-one did to it.
 public func nextWakeAbsolute(
-    _ times: [TimeOfDay], from now: Int, on date: Date, calendar: Calendar = .current
+    _ times: [TimeOfDay], from now: Int, on date: Date, calendar: Calendar = .autoupdatingCurrent
 ) -> (wake: Wake, target: Date)? {
     guard let wake = nextWake(times, from: now) else { return nil }
 
@@ -71,15 +75,30 @@ public func nextWakeAbsolute(
     return (wake, target)
 }
 
-/// The next `count` wakes, for `--dry-run`.
-public func upcoming(_ times: [TimeOfDay], from now: Int, count: Int) -> [Wake] {
+/// The next `count` wakes, each with the instant it falls on, for `--dry-run`.
+///
+/// The cursor is the instant the last wake falls on rather than a time of day,
+/// so each wake is measured from where the machine will actually be. It matters
+/// on the two nights a year the clock changes: a 03:30 requirement read at 01:30
+/// on the night the clocks go forward is two hours away as the wall clock
+/// counts it and one hour away as the hours pass, and a plan that printed the
+/// first number would be wrong by an hour about when the app appears.
+///
+/// A moment that has arrived exactly is tomorrow's by the same rule
+/// `nextWakeAbsolute` answers it with, so the same wake is not listed twice and
+/// the cursor always moves.
+public func upcomingAbsolute(
+    _ times: [TimeOfDay], from date: Date, count: Int, calendar: Calendar = .autoupdatingCurrent
+) -> [(wake: Wake, target: Date)] {
     guard count > 0 else { return [] }
-    var result: [Wake] = []
-    var cursor = now
+    var result: [(wake: Wake, target: Date)] = []
+    var cursor = date
     for _ in 0..<count {
-        guard let wake = nextWake(times, from: cursor) else { break }
-        result.append(wake)
-        cursor = (cursor + wake.delay) % secondsPerDay
+        guard let (wake, target) = nextWakeAbsolute(
+            times, from: secondsSinceMidnight(cursor, calendar: calendar), on: cursor, calendar: calendar
+        ) else { break }
+        result.append((wake, target))
+        cursor = target
     }
     return result
 }

@@ -8,7 +8,6 @@ import Testing
     let noon = TimeOfDay(hour: 12, minute: 0)
     let nine = TimeOfDay(hour: 9, minute: 0)
     let eight = TimeOfDay(hour: 8, minute: 0)
-    let seven = TimeOfDay(hour: 7, minute: 0)
     let twenty = TimeOfDay(hour: 20, minute: 0)
 
     @Test func picksTheSoonestTimeToday() {
@@ -36,20 +35,34 @@ import Testing
         #expect(nextWake([], from: nine.secondsSinceMidnight) == nil)
     }
 
+    /// A fixed ordinary day, at a fixed local hour. Ordinary on purpose: no
+    /// zone changes its clock in June, wherever the suite runs.
+    func localDate(_ hour: Int, _ minute: Int = 0) -> Date {
+        Calendar.current.date(
+            from: DateComponents(year: 2026, month: 6, day: 15, hour: hour, minute: minute)
+        )!
+    }
+
     @Test func listsTheNextWakesInOrder() {
         let times = [eight, noon, twenty]
-        #expect(upcoming(times, from: seven.secondsSinceMidnight, count: 4).map(\.at.rendered) == ["08:00", "12:00", "20:00", "08:00"])
+        let wakes = upcomingAbsolute(times, from: localDate(7), count: 4)
+        #expect(wakes.map(\.wake.at.rendered) == ["08:00", "12:00", "20:00", "08:00"])
     }
 
     @Test func keepsRepeatingOverSeveralDays() {
         let times = [noon, twenty]
-        let wakes = upcoming(times, from: nine.secondsSinceMidnight, count: 4)
-        #expect(wakes.map(\.at.rendered) == ["12:00", "20:00", "12:00", "20:00"])
-        #expect(wakes.map(\.delay) == [3 * 3_600, 8 * 3_600, 16 * 3_600, 8 * 3_600])
+        let from = localDate(9)
+        let wakes = upcomingAbsolute(times, from: from, count: 4)
+        #expect(wakes.map(\.wake.at.rendered) == ["12:00", "20:00", "12:00", "20:00"])
+        // The gap between consecutive wakes, as the clock counts them.
+        #expect(wakes.map(\.wake.delay) == [3 * 3_600, 8 * 3_600, 16 * 3_600, 8 * 3_600])
+        // Measured from the reading, which is what `--dry-run` prints: the time
+        // that will actually pass before each wake.
+        #expect(wakes.map { Int($0.target.timeIntervalSince(from)) } == [3 * 3_600, 11 * 3_600, 27 * 3_600, 35 * 3_600])
     }
 
     @Test func listsNothingWhenAskedForNothing() {
-        #expect(upcoming([eight], from: 0, count: 0) == [])
+        #expect(upcomingAbsolute([eight], from: localDate(7), count: 0).isEmpty)
     }
 }
 
@@ -121,6 +134,102 @@ import Testing
     @Test func hasNoInstantWithoutTimes() {
         let date = calendar.date(from: DateComponents(year: 2026, month: 6, day: 15, hour: 1, minute: 30))!
         #expect(nextWakeAbsolute([], from: 5_400, on: date, calendar: calendar) == nil)
+    }
+}
+
+// MARK: - A zone without daylight saving
+
+/// Mainland China has not observed daylight saving since 1991, and neither do
+/// most of the world's zones. Where there is no change there is nothing to be
+/// right about: the calendar is a plain calendar, and the instant of a wake is
+/// the time of day it says it is.
+///
+/// These are written against the two nights another zone does change, because
+/// that is where a program which had assumed the change - or assumed a
+/// particular zone - would go wrong.
+@Suite struct NoDaylightSavingTests {
+    var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        return calendar
+    }
+
+    /// The night New York springs forward, 02:30 exists here and is as far away
+    /// as the wall clock says it is.
+    @Test func theNightAnotherZoneSpringsForwardIsAnOrdinaryNightHere() {
+        let date = calendar.date(from: DateComponents(year: 2026, month: 3, day: 8, hour: 1, minute: 30))!
+        let (wake, target) = nextWakeAbsolute(
+            [TimeOfDay(hour: 2, minute: 30)], from: 5_400, on: date, calendar: calendar
+        )!
+
+        #expect(wake.at.rendered == "02:30")
+        #expect(wake.delay == 3_600)
+        #expect(target.timeIntervalSince(date) == 3_600)
+    }
+
+    /// The night New York falls back, the hour that happens twice there happens
+    /// once, and the wait is the distance the wall clock says.
+    @Test func theNightAnotherZoneFallsBackIsAnOrdinaryNightHere() {
+        let date = calendar.date(from: DateComponents(year: 2026, month: 11, day: 1, hour: 0, minute: 30))!
+        let (wake, target) = nextWakeAbsolute(
+            [TimeOfDay(hour: 2, minute: 30)], from: 1_800, on: date, calendar: calendar
+        )!
+
+        #expect(wake.delay == 7_200)
+        #expect(target.timeIntervalSince(date) == 7_200)
+    }
+
+    /// The same reading, in two zones, is not the same wait. That is the point:
+    /// the system's timezone is what says when a requirement is, and the answer
+    /// belongs to the zone it was asked in.
+    @Test func theSameNightIsADifferentWaitInADifferentZone() {
+        var newYork = Calendar(identifier: .gregorian)
+        newYork.timeZone = TimeZone(identifier: "America/New_York")!
+
+        let here = calendar.date(from: DateComponents(year: 2026, month: 11, day: 1, hour: 0, minute: 30))!
+        let there = newYork.date(from: DateComponents(year: 2026, month: 11, day: 1, hour: 0, minute: 30))!
+
+        let (wake, hereTarget) = nextWakeAbsolute(
+            [TimeOfDay(hour: 2, minute: 30)], from: 1_800, on: here, calendar: calendar
+        )!
+        let (_, thereTarget) = nextWakeAbsolute(
+            [TimeOfDay(hour: 2, minute: 30)], from: 1_800, on: there, calendar: newYork
+        )!
+
+        // Two hours here, three there: the hour that happens twice is waited
+        // through only where it happens.
+        #expect(wake.delay == 7_200)
+        #expect(hereTarget.timeIntervalSince(here) == 7_200)
+        #expect(thereTarget.timeIntervalSince(there) == 10_800)
+    }
+}
+
+// MARK: - The plan, in the hours that will pass
+
+/// `--dry-run` prints how long until each wake, and that number is the time
+/// that will actually pass, not the difference between two times of day.
+@Suite struct PlanTests {
+    var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        return calendar
+    }
+
+    /// The night the clocks go forward, read at 01:30: a 03:30 requirement is
+    /// two hours away as the wall clock counts it and one hour away as the
+    /// hours pass. The plan prints the hour that passes.
+    @Test func thePlanCountsTheHoursThatPassOnTheNightTheClocksGoForward() {
+        let from = calendar.date(from: DateComponents(year: 2026, month: 3, day: 8, hour: 1, minute: 30))!
+        let wakes = upcomingAbsolute(
+            [TimeOfDay(hour: 3, minute: 30)], from: from, count: 2, calendar: calendar
+        )
+
+        #expect(wakes.count == 2)
+        #expect(wakes[0].wake.at.rendered == "03:30")
+        #expect(Int(wakes[0].target.timeIntervalSince(from)) == 3_600)
+        // The next one is the skipped hour on top of the day, not the two
+        // hours the wall clock would count between 01:30 and 03:30.
+        #expect(Int(wakes[1].target.timeIntervalSince(from)) == 25 * 3_600)
     }
 }
 

@@ -3,7 +3,16 @@ import Foundation
 // MARK: - The wall clock
 
 /// Seconds since local midnight, which is the unit the whole scheduler speaks.
-public func secondsSinceMidnight(_ date: Date, calendar: Calendar = .current) -> Int {
+///
+/// Local means the system's, read live: the calendar defaults to
+/// `.autoupdatingCurrent`, which follows the machine's timezone setting while
+/// this process runs. showup is a daemon and outlives a timezone change - the
+/// Mac is carried to another zone, or a setting that was wrong is corrected -
+/// and a requirement is a local moment, so it is read where the machine now
+/// says it is. Which zone that is, is the machine's business: a zone with no
+/// daylight saving, mainland China since 1991 among them, is a plain calendar
+/// and there is nothing here for it to get wrong.
+public func secondsSinceMidnight(_ date: Date, calendar: Calendar = .autoupdatingCurrent) -> Int {
     Int(date.timeIntervalSince(calendar.startOfDay(for: date)))
 }
 
@@ -15,8 +24,9 @@ public func clock(_ seconds: Int) -> String {
 /// The `MM/DD/YYYY HH:MM:SS` argument `pmset schedule wake` expects.
 ///
 /// `Calendar` does the day arithmetic, so month lengths, leap years and
-/// daylight saving are its problem and not this program's.
-public func pmsetDatetime(now: Date, secondsFromNow: Int, calendar: Calendar = .current) -> String {
+/// daylight saving are its problem and not this program's. It is the system's
+/// calendar, followed live, which is also the zone `pmset` itself reads.
+public func pmsetDatetime(now: Date, secondsFromNow: Int, calendar: Calendar = .autoupdatingCurrent) -> String {
     let target = now.addingTimeInterval(Double(secondsFromNow))
     let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: target)
     return String(

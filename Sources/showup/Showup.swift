@@ -86,10 +86,15 @@ enum Showup {
     }
 
     static func printSchedule(_ config: Config) {
+        let now = Date()
         print("showup will surface \(config.app) at:")
-        for (index, wake) in upcoming(config.times, from: secondsSinceMidnight(Date()), count: 5).enumerated() {
-            let when = index == 0 ? "in \(describeDelay(wake.delay))" : "\(describeDelay(wake.delay)) later"
-            print("  \(wake.at.rendered)  \(when)")
+        for (index, entry) in upcomingAbsolute(config.times, from: now, count: 5).enumerated() {
+            // The delay is the time that will actually pass, measured to the
+            // instant rather than between two times of day: on the night the
+            // clock changes those are not the same number.
+            let delay = Int(entry.target.timeIntervalSince(now).rounded(.down))
+            let when = index == 0 ? "in \(describeDelay(delay))" : "\(describeDelay(delay)) later"
+            print("  \(entry.wake.at.rendered)  \(when)")
         }
     }
 
