@@ -1,9 +1,22 @@
 # showup 项目分析报告
 
-- **日期**：2026-10-21（当晚追加第 6 节：修正已实施）
+- **日期**：2026-10-21（分析当晚即实施修正并提交 `4e06879`；本报告已逐条标注每个问题的状态）
 - **对象**：`showup` — macOS 定时置顶工具（`sudo showup -a Safari -t 8:00,12:00,...`）
 - **方法**：逐行阅读 19 个源文件 + 10 个测试文件（3737 行 Swift）、README/TECH-DEBT/Makefile/5 个探针脚本/CI；分析全部 76 个提交（2026-10-17 → 10-21）；实测 `swift build` 与 `swift test`。
 - **实测结果**：**构建通过；126 个测试 / 14 个 suite 全绿**（修正后同样 126 个：删 3 条 `leadSplit` 测试、新增 4 条回归测试）。（注：本环境需 `swift build --disable-sandbox`，因 SwiftPM 内部 `sandbox-exec` 被沙箱阻止；这是运行环境限制，非项目缺陷——用户机器上 `.build/debug/showup` 早已存在即证。）
+
+---
+
+> **📌 阅读须知（先读这段，再看任何一节）**
+>
+> 本报告是 **2026-10-21 的分析时点快照**：第 1–4 节写的是"当时看到的问题"，引用的是当时的代码与行号。**分析当天晚间已按本报告实施修正，并提交为 `4e06879`**（Fix the early window, the quiet warning, and the stale debt list，12 files changed）。
+>
+> 因此：
+>
+> 1. **第 2、3 节的每个问题条目都带状态标记**——✅ 已修 / ❌ 刻意不修（附理由）/ ⚠️ 部分处理。未标记的即维持原文判断。
+> 2. **条目中的 `文件:行号` 多数指向修正前的代码**，修正后部分已漂移。行号只用于定位"当时分析的是什么"，**代码与 `TECH-DEBT.md` 的现状一律以仓库为准，不要以本报告的行号为准**。
+> 3. 第 5 节是优先级与实施状态，第 6 节是每条修正的反向验证记录。这两节比第 2、3 节的正文更接近现状。
+> 4. 本报告自身在版本控制内，随修正一同提交与更新。
 
 ---
 
@@ -13,9 +26,9 @@
 | --- | --- |
 | 设计文档质量 | **极高**。README 是一份带实测证据的设计论文，每个决策都附着一次失败的度量 |
 | 实现完成度 | **高**。README 描述的行为几乎全部落地，无半成品 |
-| 实现正确性 | **主路径全部正确**（126 测试 + 逐行对照）；边界原有 3 处小偏差（I1–I3），其中 I1/I2 **当晚已修并配回归测试**，I3 判定为不值得改 |
-| 测试覆盖 | 核心逻辑充分；`--no-ring`×音量、午夜 wrap 边界**当晚已补**，DST 仍无覆盖（已记债务 I4） |
-| 技术债务 | TECH-DEBT.md 记录的 9 项**全部属实**（逐条复核）；本文另发现 4 项未记录的（O1–O4），其中 O1–O3 **当晚已清** |
+| 实现正确性 | **主路径全部正确**（126 测试 + 逐行对照）；边界原有 3 处小偏差（I1–I3），其中 I1/I2 **已修并配回归测试（4e06879）**，I3 判定为不值得改 |
+| 测试覆盖 | 核心逻辑充分；`--no-ring`×音量、午夜 wrap 边界**已补（4e06879）**，DST 仍无覆盖（已记债务 I4） |
+| 技术债务 | TECH-DEBT.md 记录的 9 项**全部属实**（逐条复核）；本文另发现 4 项未记录的（O1–O4），其中 O1–O3 **已清（4e06879）** |
 | 总体判断 | **可以交付使用**。修正后 P1 级问题已清零；剩余的是技术债务与两处刻意不修的判断（I3、I4），理由见第 6 节 |
 
 ---
@@ -188,22 +201,22 @@ run ──▶ step(config, from: instant)
 
 ## 2. 文档中尚存需澄清的表述问题
 
-按严重度排序。**结论：都不影响使用，但都会误导下一位读者。**
+按严重度排序。**分析时点的结论：都不影响使用，但都会误导下一位读者。**其中 D1–D4、D6–D10 已在当天晚间修正（4e06879，见 6.7），D5 的漂移表已被 TECH-DEBT.md 的重写取代。以下保留当时的判断与依据原文。
 
-### D1（中）"sudo 只为一件东西需要"与 README 自相矛盾
+### D1（中）"sudo 只为一件东西需要"与 README 自相矛盾　✅ 已修（4e06879），见 6.7
 
 - README 开头：*"The `sudo` is needed for exactly one thing: asking the power-management system to wake the Mac"*，并称 *"Everything else — reading the sleep evidence, ringing, surfacing the app — works as your normal user."*
 - 但 README 自己的日志节承认：*"Run without sudo and the file cannot be created"*（`/var/log` 需 root）。
 - 且置顶路径是 `launchctl asuser <uid> open -a`（Session.swift:83），`asuser` 提权到另一 uid 实践中需要 root——"surfacing works as your normal user" **未经测量，很可能不成立**。
 - **需澄清**：把 "exactly one thing" 改为实测过的清单（至少含：RTC 调度 + 写 /var/log；置顶待测）。
 
-### D2（中）`slept_during` —— Python 时代的幽灵钩子
+### D2（中）`slept_during` —— Python 时代的幽灵钩子　✅ 已修（4e06879），见 6.7
 
 - README "Design implications for future developers" 第 3 条：*"the two hooks you need are `slept_during` … and `show`"*。
 - 全文 grep：`slept_during` **只出现在 README**，Swift 里不存在；对应物是 `idleSeconds` + `sleepEvidence`（纯函数）。
 - **需澄清**：该节按 Swift 名字重写，或明确标注为旧版（Python）接口名。
 
-### D3（中）三处 "runs on its own queue" 过期注释
+### D3（中）三处 "runs on its own queue" 过期注释　✅ 已修（4e06879），见 6.7
 
 闹钟自 766d874（10-19 13:30）起已改为**同步阻塞**在 `rouse` 内，但以下注释仍描述 Gleam 时代的后台队列模型：
 
@@ -213,11 +226,11 @@ run ──▶ step(config, from: instant)
 
 后果：读者会误判线程模型（`Effects.alarm` 是同步调用，不涉及跨队列传递）。
 
-### D4（低）`.unreadable` 的文档还停在 ioreg 时代
+### D4（低）`.unreadable` 的文档还停在 ioreg 时代　✅ 已修（4e06879），见 6.7
 
 `SleepDetection.swift:15`：*"`ioreg` could not be read, so nothing is known"*。实际计数器自 f4acf04 起是 `CGEventSource.secondsSinceLastEventType`（Session.swift:54-64）。同文件的 `report(...)` 字符串已更新（"the idle counter could not be read"），仅案例注释残留。
 
-### D5（低）TECH-DEBT.md 的行号已漂移
+### D5（低）TECH-DEBT.md 的行号已漂移　✅ 已修（4e06879）：整份文件重写
 
 文件声明 *"nothing here has been changed"*（写于 a67fa36，10-20 16:34），但其后 47e8669 与 1c16986 大改 Scheduler.swift，4/8 项的行号引用失效：
 
@@ -230,19 +243,21 @@ run ──▶ step(config, from: instant)
 
 （#1/#3/#4/#8 行号仍准确。**九项债务的实质内容逐条复核全部属实。**）
 
-### D6（低）DST（夏令时）只字未提
+> 注：TECH-DEBT.md 已随修正重写（4e06879），上表仅记录当时的漂移；行号以现行文件为准。
+
+### D6（低）DST（夏令时）只字未提　✅ 已修（4e06879），见 6.7
 
 调度器自己的算术假设一天恒为 86400 秒（`secondsSinceMidnight` / `secondsBetween` / 各处 `% secondsPerDay`）。`pmsetDatetime` 委托给 `Calendar`（安全），但 `nextWake` 与 `holdUntilTheTime` 没有。夏令时切换日等待可能差一小时。**需给一个立场**：支持 / 明确不支持 / 已知限制。
 
-### D7（低）`24:00` 与 `0:00` 是同一个唤醒，文档未说
+### D7（低）`24:00` 与 `0:00` 是同一个唤醒，文档未说　✅ 已修（4e06879），见 6.7
 
 `parseTime` 把 `24:00` 归一化为 `00:00`（Time.swift:83），因此 `-t 24:00,0:00` 去重后只剩一个，且无法把"前一天 24 点"和"当天 0 点"排成两个。README 只把 24:00 称作 "midnight"，未提别名关系。
 
-### D8（低）Program 1 的 "no waiting" 措辞过头
+### D8（低）Program 1 的 "no waiting" 措辞过头　✅ 已修（4e06879），见 6.7
 
 README 两程序节称 Program 1 *"No sound, no waiting, no ceremony"*，但后文提前量节明确 *"a machine that was up the whole time waits out the whole lead"*。前者指无**登录**等待，读起来像完全不等待。建议改为 "no login wait, no sound"。
 
-### D9（低）"early" 一词承载两个相反含义，易被读反
+### D9（低）"early" 一词承载两个相反含义，易被读反　✅ 已修（4e06879），见 6.7
 
 README:229 的小节标题是 *"Waking early, so the window is punctual"*——**提前唤醒是设计赖以成立的手段**，内核必须被要求早于时刻醒来；而 README:249 与 :251-252 说的是**窗口** *never goes up before the required time* / *early is not [possible]*。同一个词在一处是必需动作、在另一处是缺陷，且两节相距二十余行。
 
@@ -250,13 +265,13 @@ README:229 的小节标题是 *"Waking early, so the window is punctual"*——*
 
 > 附注：本报告初稿曾把 A1 命名为"永不禁早"，正是踩了这个坑——该词不在 README、代码或任何提交中，是分析者的坏压缩，已改为"窗口宁晚勿早"。
 
-### D10（低）"Raise the window" 与实现做的不是同一件事
+### D10（低）"Raise the window" 与实现做的不是同一件事　✅ 已修（4e06879），见 6.7
 
 README:90 用 *"Raise the window"* 描述 Program 1 的动作，而 README:480 说明实现是 `open -a <app>`：它**激活应用**，把应用的窗口带到最前并给焦点，但不指定*哪一个*窗口——哪个窗口最前由应用自己决定，跟你点 Dock 图标一样。
 
 - **若需求就是"把应用带到前台"**：两者一致，无需改动。
 - **若需求是"在多个窗口里指定抬起某一个"**：这是一个**真实的功能缺口**，需要 Accessibility API（`AXRaise`）并请求辅助功能权限，那是另一套更重的实现，且与 README:483 "No permission needs to be granted" 直接冲突。
-- 已在 README:480 后补一段把这点写明（✅ 当晚已改，见 6.7）。**待你确认需求口径。**
+- 已在 README:480 后补一段把这点写明（✅ 已改，见 6.7）。**待你确认需求口径。**
 
 ---
 
@@ -264,23 +279,23 @@ README:90 用 *"Raise the window"* 描述 Program 1 的动作，而 README:480 �
 
 ### 3.1 偏离设计要求（行为与不变式冲突）
 
-#### I1（P1）`--no-ring` 仍会警告"你听不到闹钟"　✅ 当晚已修，见 6.1
+#### I1（P1）`--no-ring` 仍会警告"你听不到闹钟"　✅ 已修（4e06879），见 6.1
 
 - **位置**：Scheduler.swift:265 `checkAudible(effects)` 在 :267 `if config.ring` **之前**。
 - **现象**：`showup -a Mail -t 9:00 -q` 且音量 13 时，日志出现 `the alarm plays at the speaker volume, which is 13 - you will not hear it`——但 `-q` 下根本没有闹钟会响。
 - **为何漏网**：`noRingNeverTouchesTheSpeaker`（SchedulerTests.swift:110）只断言了 `volumeWasSetTo == []` 和 `alarmCount == 0`，未断言 warnings。
 - **修法**：`checkAudible` 移入 `if config.ring` 分支；补一条测试。
 
-#### I2（P2）"窗口不可早于时刻"在两处边界被击穿　✅ 当晚已修，见 6.2
+#### I2（P2）"窗口不可早于时刻"在两处边界被击穿　✅ 已修（4e06879），见 6.2
 
 - **(a) 钳位差一**：Scheduler.swift:63 `min(wake.delay + (now - started), secondsPerDay - 1)`。`nextWake` 在"时刻正好是现在"时返回 `delay == 86400`，被钳成 86399 → 次日同一时刻**早 1 秒**上窗（随后自行重同步，只错一次）。钳位应为 `secondsPerDay` 或直接改为对 `at` 比较而非对 delay 钳位。
 - **(b) 午夜不 wrap**：同行的 `now - started` 是裸差。两次读钟跨越午夜时该项 ≈ −86400，`wait` 被极端扭曲（要么钳到 0 立即上窗，要么接近整天）。两次读钟间隔仅微秒，触发概率极低，但公式确实不 wrap-safe。建议用 `secondsBetween(started, now)` 或直接用 `currentDate()` 的绝对差。
 
-#### I3（P3）闹钟预算不计播放耗时
+#### I3（P3）闹钟预算不计播放耗时　❌ 刻意不修
 
 Alarm.swift:82 `elapsed += options.between` 只累计间隔等待，不含 `afplay` 播放本身（每次约 1–2s）。20 分钟预算下最严重可超支约 30%。**有兜底**：下一轮 `waited()` 发现机器睡了即 `.failed`（Alarm.swift:98,114-119），所以只是账面失真，非行为错误。**处置：不修**——账面数字不影响任何行为，改它要给 `AlarmOptions` 加一个播放耗时的输入，代价大于收益。
 
-#### I4（P3，修 I2 时新发现）时钟是"时刻"，而时刻一年里有两次不单调
+#### I4（P3，修 I2 时新发现）时钟是"时刻"，而时刻一年里有两次不单调　❌ 刻意不修（记 TECH-DEBT 第 10 项）
 
 `holdUntilTheTime`（Scheduler.swift:190）与 `secondsBetween`（Time.swift:44）都假设时钟只向前走。
 
@@ -291,54 +306,54 @@ Alarm.swift:82 `elapsed += options.between` 只累计间隔等待，不含 `afpl
 
 ### 3.2 过度编程 / 死代码（TECH-DEBT 之外的新发现）
 
-#### O1（P1）`leadSplit`：死代码，且与在用的实现语义相反，却被测试固定　✅ 当晚已删，见 6.3
+#### O1（P1）`leadSplit`：死代码，且与在用的实现语义相反，却被测试固定　✅ 已删（4e06879），见 6.3
 
 - **位置**：Schedule.swift:19-24。生产零调用（grep 确认：只有测试引用）。
 - 调度器内联的是 `ahead = max(0, wait - leadFor(...))`（Scheduler.swift:68）；`leadSplit` 在 `delay < lead` 时返回 `ahead = delay`，内联版返回 **0**。两者在子提前量情形下**相反**。
 - ScheduleTests.swift:64-74 三条测试精确地固定着这个死函数的行为——包括那条与实现相反的分支。
 - **处置二选一**：删函数 + 三条测试；或让 Scheduler 改用它（但先决定子提前量情形哪个语义是对的：现在=0 还是现在=delay）。
 
-#### O2（P2）测试替身里的死成员　✅ 当晚已清，见 6.4
+#### O2（P2）测试替身里的死成员　✅ 已清（4e06879），见 6.4
 
 `TestDoubles.swift` 中从未被读写：`desktopPolls`（:40）、`loginSeconds`（:43）、`touchKeyboard()`（:172）。
 
-#### O3（P2）`waitForAlarm` 信号量是后台闹钟时代的残留　✅ 当晚已清，见 6.4
+#### O3（P2）`waitForAlarm` 信号量是后台闹钟时代的残留　✅ 已清（4e06879），见 6.4
 
 `FakeMachine.alarmRan` 信号量 + `waitForAlarm()`（TestDoubles.swift:67,181）为"闹钟在自有队列异步跑"而建；如今 `effects.alarm` 同步执行，每个 `waitForAlarm()` 都是空转。10 处调用点可删（连带信号量）。
 
-#### O4（P3）`Step.surfaced` 的两个载荷都被丢弃
+#### O4（P3）`Step.surfaced` 的两个载荷都被丢弃　⚠️ 部分处理：`run` 已改为无绑定匹配（`case .surfaced:`），载荷保留给 `step` 的纯函数契约，仅测试断言
 
 TECH-DEBT #6 记录 `showed` 无人读（仅 1 条测试断言）；`wake` 同样如此——`run` 里 `_ = wake`（Scheduler.swift:25）。若要留载荷，至少让 `run` 消费其一；否则退化成无载荷枚举。
 
 ### 3.3 缺漏（防护与仓库卫生）
 
-| # | 缺漏 | 后果 |
-| --- | --- | --- |
-| M1 | 无 `--no-ring` × 低音量测试；无"`-q` 时跳过 checkAudible"测试 | I1 因此漏网 |
-| M2 | 无午夜边界测试（`step`/`holdUntilTheTime`/`nextWake` 的 wrap）；无 DST 测试 | I2、D6 因此漏网 |
-| M3 | `Scripts/lock-state-probe.sh` **未被 git 跟踪**（`git status` 显示 `??`），且 README/Makefile/CI 均无引用 | 孤儿产物：要么提交并在 README 与 login-state-probe.sh 并列引用，要么删除 |
-| M4 | README "Design implications" 仍按 Python 端口命名（D2），API 表与模块表则已准确 | 新旧命名混排 |
+| # | 缺漏 | 后果 | 状态 |
+| --- | --- | --- | --- |
+| M1 | 无 `--no-ring` × 低音量测试；无"`-q` 时跳过 checkAudible"测试 | I1 因此漏网 | ✅ 已补（6.1） |
+| M2 | 无午夜边界测试（`step`/`holdUntilTheTime`/`nextWake` 的 wrap）；无 DST 测试 | I2、D6 因此漏网 | ⚠️ 午夜边界已补（6.2）；DST 未写测试，转为债务 I4 |
+| M3 | `Scripts/lock-state-probe.sh` **未被 git 跟踪**（`git status` 显示 `??`），且 README/Makefile/CI 均无引用 | 孤儿产物：要么提交并在 README 与 login-state-probe.sh 并列引用，要么删除 | ✅ 已入库并在 README 引用（4e06879，见 6.6） |
+| M4 | README "Design implications" 仍按 Python 端口命名（D2），API 表与模块表则已准确 | 新旧命名混排 | ✅ 已改（D2，见 6.7） |
 
 ### 3.4 逐模块正确性评分
 
-| 模块 | 评分 | 依据 |
+| 模块 | 评分（分析时点 → 修正后） | 依据 |
 | --- | --- | --- |
-| Time.swift（解析/时钟） | A− | 全形式覆盖；小瑕疵：`Int("+8")`/`-0` 会被接受为合法小时 |
-| Schedule.swift | B+ | `nextWake`/`upcoming` 逻辑与测试全对；`leadSplit` 死码（O1） |
-| SleepDetection.swift | A | 纯函数，四案例全测，README 数字逐位复现；注释残留 ioreg（D4） |
-| WakeKind.swift | B | 对真实日志逐行验证通过；90s 窗口无实测（债务#8）；整条路仅兜底（债务#9） |
-| PowerSettings.swift | A− | verbatim 双电源输出测试；`warnings` 恒空（债务#1） |
-| Alarm.swift | B+ | 按键判定链测试充分；默认值无实测（债务#7）；预算账面（I3） |
-| **Scheduler.swift** | **A−** | 主路径零缺陷；I1/I2 两处边界；死载荷（O4） |
-| CLI.swift | A | 11 种错误路径全测；两种 flag 形式全覆盖 |
-| ShowupMac（边界） | B+ | API 替换有根因分析；`isRunning` 每唤一次进程（债务#5）；`loginFinished` 保守方向正确 |
-| 测试体系 | A− | 126 全绿；边界盲区 M1/M2 |
+| Time.swift（解析/时钟） | A− → A− | 全形式覆盖；小瑕疵：`Int("+8")`/`-0` 会被接受为合法小时 |
+| Schedule.swift | B+ → **A** | `nextWake`/`upcoming` 逻辑与测试全对；`leadSplit` 死码已删（6.3） |
+| SleepDetection.swift | A → A | 纯函数，四案例全测，README 数字逐位复现；ioreg 注释已改（6.7） |
+| WakeKind.swift | B → B | 对真实日志逐行验证通过；90s 窗口无实测（债务#8）；整条路仅兜底（债务#9） |
+| PowerSettings.swift | A− → A− | verbatim 双电源输出测试；`warnings` 恒空（债务#1） |
+| Alarm.swift | B+ → B+ | 按键判定链测试充分；默认值无实测（债务#7）；预算账面（I3，刻意不修） |
+| **Scheduler.swift** | A− → **A** | 主路径零缺陷；I1/I2 两处边界已修并各配回归测试；载荷改无绑定匹配（6.8） |
+| CLI.swift | A → A | 11 种错误路径全测；两种 flag 形式全覆盖 |
+| ShowupMac（边界） | B+ → B+ | API 替换有根因分析；`isRunning` 每唤一次进程（债务#5）；`loginFinished` 保守方向正确 |
+| 测试体系 | A− → **A** | 126 全绿；边界盲区 M1 已补、M2 的午夜部分已补；阶段耗时 5.0s → 0.32s（6.4/6.8） |
 
 ---
 
 ## 4. 与 TECH-DEBT.md 的核对结论
 
-逐条复核 9 项，**全部属实且均未修复**（TECH-DEBT 写于 a67fa36 后仅新增未消减）：
+逐条复核 9 项，**分析时点全部属实且均未修复**（TECH-DEBT 写于 a67fa36 后仅新增未消减）。该文件现已随修正重写（4e06879）：行号全部重新核对、第 6 项按现状改写、新增第 10 项（I4）、末尾补"已解决"表。以下是当时的核对记录：
 
 1. `IdleWindowReport.warnings` 恒空 — **属实**（PowerSettings.swift:154）
 2. `Step.idle` 不可达 — **属实**（CLI.swift:41 保证 times 非空）
@@ -367,7 +382,7 @@ TECH-DEBT #6 记录 `showed` 无人读（仅 1 条测试断言）；`wake` 同�
 | **P2** | D1/D2/D3/D4：sudo 清单、幽灵钩子、queue 注释、ioreg 注释 | 小 | ✅ 已改 |
 | **P2** | D5：复核 TECH-DEBT 行号；把新发现补登进去 | 小 | ✅ 已重写（实际漂移比初判更多：1/2/5/6/7/9 项的行号都动了，不只是 4/8） |
 | **P2** | O2/O3：清理测试替身死成员与信号量 | 小 | ✅ 已清 |
-| **P3** | M3：处置孤儿脚本 lock-state-probe.sh | 极小 | ✅ 已在 README 与 login-state-probe.sh 并列引用；**文件本身仍未 `git add`**（未提交，见 6.6） |
+| **P3** | M3：处置孤儿脚本 lock-state-probe.sh | 极小 | ✅ README 已并列引用；文件已随本轮修正入库（4e06879，见 6.6） |
 | **P3** | D6/D7/D8/D9/D10：DST、24:00、"no waiting"、"early" 双主语、窗口 vs 应用 | 极小 | ✅ 已改 |
 | **P3** | I3：预算计入播放耗时 | 极小 | ❌ 未做（账面失真，有兜底，不值得改） |
 | **P3** | M2 的 DST 测试 | 小 | ❌ 未做——改为记录为技术债务（I4），理由见 6.5 |
@@ -376,7 +391,7 @@ TECH-DEBT #6 记录 `showed` 无人读（仅 1 条测试断言）；`wake` 同�
 
 ## 6. 本轮已实施的修正（2026-10-21 晚）
 
-每条修正都配了一条**在没有该修正时会失败的测试**，已逐条反向验证过：把旧公式临时放回去，4 条新测试全部变红。
+每条修正都配了一条**在没有该修正时会失败的测试**，已逐条反向验证过：把旧公式临时放回去，4 条新测试全部变红。本节全部改动连同本报告已提交为 `4e06879`。
 
 ### 6.1 I1：`checkAudible` 只在会响的时候运行
 
@@ -422,7 +437,7 @@ let wait = max(0, wake.delay - secondsBetween(now, started))
 
 ### 6.6 M3：`lock-state-probe.sh` 不再是无引用孤儿
 
-已在 README 的 `login-state-probe.sh` 处并列引用它，并说明它回答的是更窄的问题（锁屏与已登录之间，哪个信号在动——正是 `waitForTheLogin` 依赖的那个区分）。**文件本身仍未 `git add`**：工作区还有 6 个已改文件未提交，是否提交、何时提交由你决定；要收进去的话 `git add Scripts/lock-state-probe.sh` 即可。
+已在 README 的 `login-state-probe.sh` 处并列引用它，并说明它回答的是更窄的问题（锁屏与已登录之间，哪个信号在动——正是 `waitForTheLogin` 依赖的那个区分）。文件与 README 的引用已随本轮全部修正一同入库（提交 `4e06879`，与 `ANALYSIS.md` 一起），不再是孤儿。
 
 ### 6.7 文档修正一览
 
@@ -460,4 +475,4 @@ swift test --disable-sandbox \
 #   （清理 waitForAlarm 信号量之前是 5.03 秒，差额全是 6 个测试各自的 5 秒超时）
 ```
 
-*报告完。所有结论可复查：每条均给出 `文件:行号` 或提交号。*
+*报告完。所有结论可复查：每条均给出 `文件:行号` 或提交号。行号指向分析时点的代码，修正后部分已漂移——定位与核对一律以仓库现状为准。*
