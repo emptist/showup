@@ -6,10 +6,10 @@ import Testing
 /// This is where the two programs diverge, and the divergence used to be
 /// untested: `-q` was parsed, tested at the parser, and then never read.
 @Suite struct SchedulerTests {
-    func config(hour: Int, ring: Bool = true, app: String = "Safari") -> Config {
+    func config(hour: Int, minute: Int = 0, ring: Bool = true, app: String = "Safari") -> Config {
         Config(
             app: app,
-            times: [TimeOfDay(hour: hour, minute: 0)],
+            times: [TimeOfDay(hour: hour, minute: minute)],
             ring: ring,
             dryRun: false
         )
@@ -385,17 +385,20 @@ import Testing
     }
 
     /// The two clock readings a wait is corrected by are a moment apart, and a
-    /// moment can straddle midnight. Counting the seconds that passed forward
-    /// round the clock is what stops that from reading as most of a day: a bare
-    /// subtraction would hold the window until tomorrow over a one second wait.
+    /// moment can straddle midnight. The caller's reading is from the last
+    /// second of the day and the step starts on the other side of it, which is
+    /// a wait of nothing at all: counting the seconds forward round the clock
+    /// is what stops that from reading as most of a day, and a wait of a whole
+    /// day would hold the window until tomorrow over a one second wait.
     @Test func aWaitThatStraddlesMidnightIsNotAWholeDay() {
         let machine = FakeMachine()
-        // The machine has just crossed into the day, and the caller's reading is
-        // from the last second of the one before it.
-        machine.setClock(0)
-        machine.sleepsDuringWait = false
+        // The caller's reading is from the last second of the day, and the
+        // step starts a second later, on the other side of midnight.
+        machine.setClock(secondsPerDay - 1)
+        let callerDate = machine.currentDate
+        machine.advance(1)
 
-        _ = step(config(hour: 0), effects: machine.effects, from: secondsPerDay - 1)
+        _ = step(config(hour: 0), effects: machine.effects, from: secondsPerDay - 1, at: callerDate)
 
         // Midnight has arrived, so the window goes up now and not in a day.
         #expect(machine.now == 0)
@@ -704,6 +707,46 @@ import Testing
 
         // 09:00 minus a one minute lead is the instant the kernel was asked for.
         #expect(machine.requestedAt == 8 * 3_600 + 59 * 60)
+    }
+
+    // MARK: The two days the clock changes
+
+    /// A clock change lands wherever it lands, including inside the hold. The
+    /// time of day jumps an hour and no time passes while it does, so a wait
+    /// counted on the time of day is an hour long or an hour short: this one
+    /// would read the jump as most of the wait and put the window up on the
+    /// spot, an hour before the time it exists for.
+    @Test func aClockChangeDuringTheHoldDoesNotBringTheWindowUpEarly() {
+        let machine = FakeMachine()
+        machine.setClock(2 * 3_600)  // 02:00, ninety minutes before 03:30
+        machine.sleepsDuringWait = false
+        // The clocks go forward while the window is being held.
+        machine.clockJumpsOnSleep = { $0 == 1 ? 3_600 : 0 }
+
+        _ = step(config(hour: 3, minute: 30), effects: machine.effects, from: 2 * 3_600)
+
+        #expect(machine.shownApps == ["Safari"])
+        // The whole ninety minute wait was slept through, in steps. The hour
+        // the clock jumped is not an hour of the wait.
+        #expect(machine.sleptFor.reduce(0, +) >= 90 * 60 - sleepStepSeconds)
+    }
+
+    /// The other direction: the clocks go back, and the time of day repeats an
+    /// hour. A wait counted on the time of day reads the repeated hour as most
+    /// of a day - the count can only go forward, and it goes round the clock to
+    /// get there - and the window goes up at once, which is early.
+    @Test func aClockGoingBackwardsDoesNotHoldTheWindowForADay() {
+        let machine = FakeMachine()
+        machine.setClock(2 * 3_600)
+        machine.sleepsDuringWait = false
+        // The clocks go back while the window is being held.
+        machine.clockJumpsOnSleep = { $0 == 1 ? -3_600 : 0 }
+
+        _ = step(config(hour: 3, minute: 30), effects: machine.effects, from: 2 * 3_600)
+
+        #expect(machine.shownApps == ["Safari"])
+        // Ninety minutes of wait, however the time of day reads it.
+        #expect(machine.sleptFor.reduce(0, +) >= 90 * 60 - sleepStepSeconds)
     }
 
     // MARK: Degenerate input

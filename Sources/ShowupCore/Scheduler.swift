@@ -5,8 +5,9 @@ public func run(_ config: Config, effects: Effects) {
     reportIdleWindow(effects)
 
     var instant = effects.now()
+    var instantDate = effects.currentDate()
     while true {
-        switch step(config, effects: effects, from: instant) {
+        switch step(config, effects: effects, from: instant, at: instantDate) {
         // The payloads are what a test asserts on; the loop needs neither.
         case .surfaced:
             // Step past the wake that was just handled, on the machine's own
@@ -23,6 +24,7 @@ public func run(_ config: Config, effects: Effects) {
             // on its own: `nextWake` reads the clock, and a time in the past
             // is tomorrow's. So the same wake is not served twice.
             instant = effects.now()
+            instantDate = effects.currentDate()
         case .idle:
             return
         }
@@ -41,36 +43,34 @@ public enum Step: Equatable {
     case idle
 }
 
-public func step(_ config: Config, effects: Effects, from now: Int) -> Step {
-    guard let wake = nextWake(config.times, from: now) else {
+/// The instant the caller's reading was taken at.
+///
+/// The seconds between the caller's reading and this one are counted on the
+/// monotonic clock, and the requirement is a moment on the calendar, so the
+/// wait is simply the distance from here to there. It is not the difference
+/// of two times of day: that difference is an hour out on the day the clock
+/// changes, and a wait an hour long shows a window an hour before it exists.
+///
+/// The reading defaults to now, which is what it is when a caller has nothing
+/// earlier to report.
+public func step(
+    _ config: Config, effects: Effects, from now: Int, at instantDate: Date? = nil
+) -> Step {
+    let callerDate = instantDate ?? effects.currentDate()
+    guard let (wake, target) = nextWakeAbsolute(config.times, from: now, on: callerDate) else {
         effects.log("no times to wait for, stopping")
         return .idle
     }
 
     let started = effects.now()
-    // How long the machine's own clock says it is until the required time.
-    //
-    // `wake.delay` is measured from the caller's clock, which is where the
-    // machine was when the last window was served, while `started` is where it
-    // is now. The difference is how far the two have drifted, and it is
-    // exactly the error to undo: a window served a minute early put every
-    // later one a minute early too, because each wait was measured from the
-    // scheduled time rather than from where the machine actually was.
-    //
-    // The seconds that passed between the two readings are counted forward
-    // round the clock, because both of them are times of day: two readings
-    // either side of midnight are a second or two apart, and a bare subtraction
-    // would read them as most of a day apart and hold the window until
-    // tomorrow. Counting them also keeps the whole wait inside one day, so no
-    // clamp is needed: `wake.delay` is at most a day and the correction only
-    // ever shortens it. A time whose moment has already arrived - including one
-    // that has arrived exactly, which `nextWake` answers with a whole day -
-    // keeps the whole day, and a window served a second early used to be what a
-    // clamp of a day-minus-one did to it.
-    //
-    // A negative wait means the machine's clock is already past the required
-    // time, which is late and allowed: the window goes up at once.
-    let wait = max(0, wake.delay - secondsBetween(now, started))
+    let startedMono = effects.monotonicNow()
+    let stepDate = effects.currentDate()
+    // The wait is the distance from this reading to the required moment,
+    // counted on the calendar. A negative one cannot happen - the moment is
+    // today's or tomorrow's by construction - but a clock that was corrected
+    // under the program's feet is not worth arguing with: the window goes up
+    // at once, which is late and allowed.
+    let wait = max(0, Int(target.timeIntervalSince(stepDate).rounded(.down)))
     // The kernel is asked to bring the Mac back a lead before the required
     // time, so that the display coming up, the person waking and the password
     // all happen inside the window rather than in the minute the app was
@@ -112,7 +112,7 @@ public func step(_ config: Config, effects: Effects, from now: Int) -> Step {
             guard waitForTheLogin(effects) else {
                 return .surfaced(wake: wake, showed: .notShown(reason: "the login did not finish"))
             }
-            holdUntilTheTime(effects, since: started, wait: wait)
+            holdUntilTheTime(effects, since: startedMono, wait: wait)
             return .surfaced(wake: wake, showed: surface(config.app, effects))
         case .nobodyCame:
             // The app is for the user to see, and there is no user. The run
@@ -121,12 +121,12 @@ public func step(_ config: Config, effects: Effects, from now: Int) -> Step {
         case .notRung:
             // Nothing was rung, so nothing is known about whether somebody is
             // there. Phase one still happens: the app is surfaced on the time.
-            holdUntilTheTime(effects, since: started, wait: wait)
+            holdUntilTheTime(effects, since: startedMono, wait: wait)
             return .surfaced(wake: wake, showed: surface(config.app, effects))
         }
     }
 
-    holdUntilTheTime(effects, since: started, wait: wait)
+    holdUntilTheTime(effects, since: startedMono, wait: wait)
     return .surfaced(wake: wake, showed: surface(config.app, effects))
 }
 
@@ -178,28 +178,25 @@ private func waitForTheLogin(_ effects: Effects) -> Bool {
 /// at 20:59:00 four runs out of four, once by nearly six minutes.
 ///
 /// The wait is counted as seconds elapsed since this wake began, and the count
-/// is monotone. The clock is a time of day and wraps at midnight, so the
-/// seconds that passed are the difference between two readings plus the whole
-/// day when the clock went round. A count that could go backwards would ask
-/// for the wait again, and a wait that can never be satisfied would ask for
-/// it for ever.
+/// is monotone. A time of day is not a duration - it jumps an hour in spring
+/// and an hour back in autumn - so the count is kept on the clock that is one,
+/// and midnight and a clock change are the same nothing to it. A count that
+/// could go backwards would ask for the wait again, and a wait that can never
+/// be satisfied would ask for it for ever.
 ///
 /// Late is possible; early is not.
-private func holdUntilTheTime(_ effects: Effects, since started: Int, wait: Int) {
+private func holdUntilTheTime(_ effects: Effects, since started: Double, wait: Int) {
     // The time already spent counts: the wait for the wake and the rouse have
     // both happened, and the window may already be late.
-    var elapsed = 0
+    var elapsed = 0.0
     var last = started
     while true {
-        let now = effects.now()
-        // The clock wrapped round midnight, so the time it reads is smaller
-        // than the one before it. The seconds that passed are the difference
-        // plus the whole day it went round.
-        elapsed += now >= last ? now - last : now + secondsPerDay - last
+        let now = effects.monotonicNow()
+        elapsed += now - last
         last = now
-        guard elapsed < wait else { return }
+        guard elapsed < Double(wait) else { return }
 
-        let missing = wait - elapsed
+        let missing = wait - Int(elapsed.rounded(.down))
         effects.log("holding the window for \(missing)s until the required time")
         let before = effects.now()
         sleepSeconds(effects, missing)

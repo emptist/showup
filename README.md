@@ -276,15 +276,29 @@ machine actually was. A real run put the app up at 20:59:00, 21:59:00,
 four minutes early, one after another.
 
 Twice a year the clock is not a clock. On the night daylight saving ends, 02:00
-happens twice; on the night it starts, 02:00 does not happen at all. Every wait
-here is counted in seconds since local midnight, so a hold that spans the change
-reads the hour as either twenty-three hours of waiting or one hour of it, and
-the window goes up accordingly — late on one of those nights, early on the
-other. The wake itself is handed to `pmset` in calendar terms, which does handle
-it; the counting does not. Only a window being held across 02:00 is affected,
-which is two nights a year at most. It is written down because it is the one
-place where "early is not" has a hole in it, and the fix is a change of clock
-model rather than a patch to one loop.
+happens twice; on the night it starts, 02:00 does not happen at all. A time of
+day is therefore not a duration, and the two kinds of second are kept apart on
+purpose:
+
+- **A requirement is a moment, and the calendar says when it is.** The wait is
+  the distance from now to that moment, computed with
+  `Calendar.date(bySettingHour:)`, which knows which of the two 02:30s is next
+  and that 02:30 does not exist in spring. A 02:30 requirement on the night the
+  clocks go forward is two hours away as the wall clock counts it and one hour
+  away as the hours pass; the wait is the one that passes.
+- **A duration is counted on the monotonic clock.** The hold that keeps the
+  window until the required time counts seconds elapsed on `mach_absolute_time`,
+  which is the same length on both sides of a clock change. It also does not
+  wrap at midnight, which is why the hold no longer corrects for the clock
+  going round: the count simply cannot go backwards.
+- **Evidence keeps the wall clock.** The monotonic clock stops while the Mac is
+  suspended, and the seconds a sleep cost are exactly what the idle counter is
+  asked about. A clock that slept through the sleep would answer "none".
+
+Both directions of the failure this replaced are tested: two against a timezone
+that has the changes (New York, spring and autumn), where the wait is checked
+against the hours that actually pass, and two where the wall clock jumps inside
+a running hold and the wait is checked against the seconds that really went by.
 
 When the Mac had been asleep the app goes up when the ringing stops, which is
 later than the target if you are away from the machine and exactly when you

@@ -1,3 +1,5 @@
+import Foundation
+
 /// How long before a wake the kernel is asked to bring the Mac back.
 ///
 /// Asking it to wake *at* the time would make the app late every single time,
@@ -38,6 +40,35 @@ public func nextWake(_ times: [TimeOfDay], from now: Int) -> Wake? {
             return Wake(at: at, delay: until)
         }
         .min { $0.delay < $1.delay }
+}
+
+/// The soonest of `times`, with the wall-clock instant it falls on.
+///
+/// `nextWake` answers in seconds, and a second is not the same length as a
+/// second of the calendar on the two days of the year when the clock changes:
+/// a 02:30 requirement on the day the clocks go forward is 30 minutes away as
+/// the wall clock counts it, and 90 minutes away as the afternoon arrives. The
+/// instant is settled by the calendar instead - `date(bySettingHour:)` knows
+/// which of those hours exist - so a wait measured to the instant is measured
+/// in the seconds that will actually pass.
+///
+/// A moment that has already arrived today is tomorrow's, by the same rule
+/// `nextWake` answers it with: a whole day of delay. That includes the moment
+/// that is arriving exactly now, which is what keeps a window served a second
+/// early from being what a clamp of a day-minus-one did to it.
+public func nextWakeAbsolute(
+    _ times: [TimeOfDay], from now: Int, on date: Date, calendar: Calendar = .current
+) -> (wake: Wake, target: Date)? {
+    guard let wake = nextWake(times, from: now) else { return nil }
+
+    let today = calendar.date(bySettingHour: wake.at.hour, minute: wake.at.minute, second: 0, of: date)
+    guard let today else { return nil }
+    // A requirement whose moment has arrived is tomorrow's. The comparison is
+    // between instants, not between times of day, so it holds across a clock
+    // change as well.
+    let target = today > date ? today : calendar.date(byAdding: .day, value: 1, to: today)
+    guard let target else { return nil }
+    return (wake, target)
 }
 
 /// The next `count` wakes, for `--dry-run`.
