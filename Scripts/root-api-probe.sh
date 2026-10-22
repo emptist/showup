@@ -10,7 +10,8 @@
 # Compile as yourself, then run it both ways and compare:
 #
 #     ./Scripts/root-api-probe.sh          # as you
-#     sudo ./Scripts/root-api-probe.sh      # as root, which is how showup runs
+#     sudo ./Scripts/root-api-probe.sh      # as root, how showup runs today
+#                                          (the planned run is user-mode — README, "Where the design is going")
 #
 # Compiling under sudo fails - root has no Swift toolchain - so the binary is
 # built first and only the run is escalated.
