@@ -17,16 +17,12 @@ extension NSLock {
 final class FakeMachine: @unchecked Sendable {
     private let lock = NSLock()
 
-    /// The two clocks, kept apart on purpose.
-    ///
-    /// `date` is the wall clock - a time of day, which jumps an hour in spring
-    /// and an hour back in autumn - and `mono` is the duration clock, which
-    /// only ever moves forward and moves exactly as far as the seconds that
-    /// really passed. A sleep advances both. A clock change moves the wall
-    /// clock alone, and that difference is what the scheduler has to be right
-    /// about, so the fake can produce it.
+    /// The wall clock: a time of day, which jumps an hour in spring and an
+    /// hour back in autumn. There is no second clock. A duration is the
+    /// distance between two readings of this one, because this is the only
+    /// clock that keeps running while the Mac is suspended - and a wait that
+    /// is measured on any other clock adds the suspension to itself.
     private var date: Date
-    private var mono = 0.0
 
     // The idle counter, modelled the way the real one behaves: it runs only
     // while the machine is up, so it freezes across a sleep and picks up where
@@ -43,10 +39,45 @@ final class FakeMachine: @unchecked Sendable {
 
     /// Whether the Mac goes to sleep during the wait.
     var sleepsDuringWait = false
-    /// Seconds the wall clock jumps after a sleep, keyed by which sleep it is.
-    /// This is what a clock change looks like from inside a wait: the time of
-    /// day moves an hour, and no time passes while it does.
-    var clockJumpsOnSleep: (Int) -> Int = { _ in 0 }
+    /// Extra seconds the wall clock moves during a sleep, over and above the
+    /// wait that was asked for, keyed by which sleep it is. This is what the
+    /// two clock changes of the year look like from inside a wait - the time
+    /// of day moves an hour and the machine believes it - and equally what a
+    /// suspension looks like: the RTC runs on while the process is frozen, so
+    /// a sleep asked for as ten seconds can cost ten minutes of wall clock.
+    var sleepAdvancesClock: (Int) -> Int = { _ in 0 }
+
+    /// Seconds the wall clock moves with the process frozen inside a sleep,
+    /// keyed by which sleep it is, over and above the wait that was asked for.
+    ///
+    /// This is a suspension as the machine actually performs one: the caller
+    /// asked for ten seconds, the idle timer took the Mac down for an hour, and
+    /// `Thread.sleep` returned to a clock an hour on. It is the same event as
+    /// `sleepAdvancesClock` from inside the program — nothing accumulated
+    /// survives it — but it is kept as a separate hook because the two are
+    /// written for different tests: a clock change moves the wall clock while
+    /// the process runs, a suspension moves it while the process does not, and
+    /// a test that means to reproduce a sleep should say so by name.
+    var suspendsDuringSleep: (Int, Int) -> Int = { _, _ in 0 }
+
+    /// The Mac goes down inside the given sleep — the first one by default —
+    /// and stays down for `seconds`, the way its own idle timer takes it rather
+    /// than a clock change.
+    ///
+    /// Sleeps are counted as the waits that actually asked for something: the
+    /// alarm's own bookkeeping asks for zero seconds between rings, and a test
+    /// that means to interrupt a wait does not mean to interrupt that.
+    func suspendsDuring(_ nth: Int = 1, for seconds: Int) {
+        var seen = 0
+        suspendsDuringSleep = { index, asked in
+            // A wait that asked for nothing is bookkeeping, not a wait: the
+            // alarm reads the clock between rings without sleeping, and a test
+            // that means to interrupt a wait does not mean to interrupt that.
+            guard asked > 0 else { return 0 }
+            seen += 1
+            return seen == nth ? seconds : 0
+        }
+    }
 
     // What was asked of the machine
     private(set) var sleptFor: [Int] = []
@@ -92,16 +123,12 @@ final class FakeMachine: @unchecked Sendable {
     /// is: the date the seconds since midnight were read from.
     var currentDate: Date { lock.withLock { date } }
 
-    /// The duration clock. A sleep advances it; a clock change does not.
-    var monotonicNow: Double { lock.withLock { mono } }
-
     // MARK: Effects
 
     var effects: Effects {
         Effects(
             now: { [self] in self.now },
             currentDate: { [self] in self.currentDate },
-            monotonicNow: { [self] in self.monotonicNow },
             sleep: { [self] in self.recordSleep($0) },
             scheduleWake: { [self] in self.recordWakeRequest($0) },
             idleSeconds: { [self] in self.readIdle() },
@@ -132,11 +159,16 @@ final class FakeMachine: @unchecked Sendable {
 
     private func recordSleep(_ seconds: Int) {
         lock.withLock {
+            let index = sleptFor.count
             sleptFor.append(seconds)
-            date = date.addingTimeInterval(Double(seconds))
-            mono += Double(seconds)
-            // A clock change lands wherever it lands, not on a step boundary.
-            date = date.addingTimeInterval(Double(clockJumpsOnSleep(sleptFor.count)))
+            // The wall clock moves by the wait that was asked for, plus
+            // whatever the machine's own idea of the time did while it was
+            // down: a clock change, or a suspension the RTC slept through.
+            // Nothing distinguishes them from inside the program, which is the
+            // point — a wait measured on this clock survives both.
+            date = date.addingTimeInterval(
+                Double(seconds + sleepAdvancesClock(index) + suspendsDuringSleep(index, seconds))
+            )
         }
     }
 
@@ -202,19 +234,11 @@ final class FakeMachine: @unchecked Sendable {
         }
     }
 
-    /// The given number of seconds really pass: both clocks move.
+    /// The given number of seconds really pass.
     func advance(_ seconds: Int) {
         lock.withLock {
             date = date.addingTimeInterval(Double(seconds))
-            mono += Double(seconds)
         }
-    }
-
-    /// The wall clock jumps without any time passing, which is what the two
-    /// clock changes of the year look like from inside a wait: the time of day
-    /// moves an hour, the duration clock does not move at all.
-    func jumpClock(_ seconds: Int) {
-        lock.withLock { date = date.addingTimeInterval(Double(seconds)) }
     }
 
     /// The logged and warned text, for a test that cares about wording.

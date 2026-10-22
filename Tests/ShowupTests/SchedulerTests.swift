@@ -552,13 +552,50 @@ import Testing
         machine.sleepsDuringWait = true
         machine.alarmTakesSeconds = 900  // somebody took a quarter of an hour
 
-        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+        guard case .surfaced(let wake, _) = step(config(hour: 9), effects: machine.effects, from: 0)
+        else {
+            Issue.record("no wake was served")
+            return
+        }
 
         #expect(machine.shownApps == ["Safari"])
-        // 09:00 has been served, so the next one is tomorrow and the loop must
-        // not land back on the wake it just did.
-        let served = TimeOfDay(hour: 9, minute: 0).secondsSinceMidnight
-        #expect(nextWake([TimeOfDay(hour: 9, minute: 0)], from: served)?.delay == 86_400)
+        // The loop steps past the wake it just did by the wake's own moment,
+        // which is the one thing that cannot land back on it: 09:00 has been
+        // served at 09:15, and the cursor is at 09:00:01, so the next 09:00 is
+        // tomorrow's.
+        let cursor = (wake.at.secondsSinceMidnight + 1) % secondsPerDay
+        #expect(nextWake([TimeOfDay(hour: 9, minute: 0)], from: cursor)?.delay == secondsPerDay - 1)
+    }
+
+    /// A rouse that reached nobody spends the wake: the app is for the user to
+    /// see, and there is no user. The loop must move on to the next time. It
+    /// used to leave the cursor on the machine's clock, so a wake whose moment
+    /// had not passed yet was served a second time - re-arming a wake for the
+    /// moment the program was already at, and bringing the app up for a wake
+    /// that had failed.
+    @Test func aRouseThatReachedNobodySpendsTheWake() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.alarmOutcome = .failed(rings: 1)
+        let times = [TimeOfDay(hour: 0, minute: 20), TimeOfDay(hour: 0, minute: 40)]
+
+        guard case .surfaced(let wake, _) = step(
+            Config(app: "Safari", times: times, ring: true, dryRun: false),
+            effects: machine.effects,
+            from: 0
+        ) else {
+            Issue.record("no wake was served")
+            return
+        }
+
+        #expect(wake.at == TimeOfDay(hour: 0, minute: 20))
+        #expect(machine.said("this wake has passed"))
+        #expect(machine.shownApps == [])
+        // The wake is spent, so the next step serves 00:40.
+        let cursor = (wake.at.secondsSinceMidnight + 1) % secondsPerDay
+        #expect(nextWake(times, from: cursor)?.at == TimeOfDay(hour: 0, minute: 40))
     }
 
     /// Each configured time is served once per day, whatever the rouse cost.
@@ -709,44 +746,128 @@ import Testing
         #expect(machine.requestedAt == 8 * 3_600 + 59 * 60)
     }
 
-    // MARK: The two days the clock changes
+    // MARK: A clock that moves under the program's feet
 
-    /// A clock change lands wherever it lands, including inside the hold. The
-    /// time of day jumps an hour and no time passes while it does, so a wait
-    /// counted on the time of day is an hour long or an hour short: this one
-    /// would read the jump as most of the wait and put the window up on the
-    /// spot, an hour before the time it exists for.
-    @Test func aClockChangeDuringTheHoldDoesNotBringTheWindowUpEarly() {
+    /// The clock jumps forward while the window is being held - the machine's
+    /// own idea of the time moves an hour, and no time passes while it does.
+    /// The window goes up when the machine's clock reaches the required
+    /// moment, so the deadline moves with the clock: the hour that was jumped
+    /// is not an hour of waiting. A wait counted in seconds instead would
+    /// sleep the whole ninety minutes and land an hour past the moment.
+    @Test func aClockThatJumpsForwardMovesTheDeadlineWithIt() {
         let machine = FakeMachine()
         machine.setClock(2 * 3_600)  // 02:00, ninety minutes before 03:30
         machine.sleepsDuringWait = false
-        // The clocks go forward while the window is being held.
-        machine.clockJumpsOnSleep = { $0 == 1 ? 3_600 : 0 }
+        // The clock moves an hour forward during the first sleep of the wait.
+        machine.sleepAdvancesClock = { $0 == 1 ? 3_600 : 0 }
 
         _ = step(config(hour: 3, minute: 30), effects: machine.effects, from: 2 * 3_600)
 
         #expect(machine.shownApps == ["Safari"])
-        // The whole ninety minute wait was slept through, in steps. The hour
-        // the clock jumped is not an hour of the wait.
-        #expect(machine.sleptFor.reduce(0, +) >= 90 * 60 - sleepStepSeconds)
+        // The machine's clock read 03:30, and the window went up then. Only
+        // half an hour was really slept through: the hour the clock jumped is
+        // not an hour of the wait.
+        #expect(machine.now == 3 * 3_600 + 30 * 60)
+        #expect(machine.sleptFor.reduce(0, +) <= 30 * 60)
     }
 
-    /// The other direction: the clocks go back, and the time of day repeats an
-    /// hour. A wait counted on the time of day reads the repeated hour as most
-    /// of a day - the count can only go forward, and it goes round the clock to
-    /// get there - and the window goes up at once, which is early.
-    @Test func aClockGoingBackwardsDoesNotHoldTheWindowForADay() {
+    /// The other direction: the clock goes back, and the time of day repeats
+    /// an hour. The wait is measured against the machine's clock, so the hour
+    /// that happened twice is waited again and the window still lands on the
+    /// machine's 03:30 - not a day later, which is what a wait counted round
+    /// the clock would read the repeated hour as.
+    @Test func aClockThatGoesBackwardsIsWaitedAgain() {
         let machine = FakeMachine()
         machine.setClock(2 * 3_600)
         machine.sleepsDuringWait = false
-        // The clocks go back while the window is being held.
-        machine.clockJumpsOnSleep = { $0 == 1 ? -3_600 : 0 }
+        // The clock moves an hour back during the first sleep of the wait.
+        machine.sleepAdvancesClock = { $0 == 1 ? -3_600 : 0 }
 
         _ = step(config(hour: 3, minute: 30), effects: machine.effects, from: 2 * 3_600)
 
         #expect(machine.shownApps == ["Safari"])
-        // Ninety minutes of wait, however the time of day reads it.
-        #expect(machine.sleptFor.reduce(0, +) >= 90 * 60 - sleepStepSeconds)
+        // 03:30 on the machine's clock, however the hour is spent.
+        #expect(machine.now == 3 * 3_600 + 30 * 60)
+        // The repeated hour is waited again: ninety minutes of ask, plus the
+        // hour the clock took back.
+        #expect(machine.sleptFor.reduce(0, +) >= 90 * 60 + 3_600 - sleepStepSeconds)
+    }
+
+    // MARK: The machine going down mid-wait
+
+    /// The regression from a real run: a 04:00 window that went up at 04:16.
+    /// The Mac went down during the hold and came back afterwards, and the
+    /// wait was counted in seconds that did not pass while it was down, so
+    /// the hold owed itself the whole suspension again before the app came up.
+    ///
+    /// The hold asks the clock instead. A machine that was asleep comes back
+    /// to a clock that ran on without it, and the window goes up then: late by
+    /// the tail of the sleep, which is allowed, and not by the sleep itself.
+    @Test func aSleepDuringTheHoldDoesNotAddTheSleepToTheWait() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.sleepsDuringWait = false
+        // The Mac goes down during the hold and comes back five minutes
+        // later: the RTC ran on while the process was frozen.
+        machine.suspendsDuring(1, for: 310)
+
+        _ = step(config(hour: 0, minute: 2), effects: machine.effects, from: 0)
+
+        #expect(machine.shownApps == ["Safari"])
+        // 00:05:20, and the arithmetic is the point: ten seconds of the wait
+        // and then five minutes down with the process frozen, so the clock
+        // read 00:05:20 when the machine came back — well past the 00:02 it
+        // was waiting for — and the hold stopped there.
+        //
+        // Not 00:07:10, which is 00:02 plus the whole wait all over again: a
+        // count that adds the suspension to itself owes itself the sleep twice.
+        #expect(machine.now == sleepStepSeconds + 310)
+    }
+
+    /// The other half of the same run: an 08:00 window that went up at 09:40.
+    /// The step began at 04:16, the Mac slept for two hours of the wait for
+    /// the wake, and the hold was still owed the whole 08:00 distance counted
+    /// from 04:16 - so it slept another hour and three quarters after the
+    /// machine was already back and past the time.
+    ///
+    /// The moment is one instant, and the hold is entered whenever it is
+    /// entered: it asks the clock how far off the moment is now, and the two
+    /// hours the machine was down are not part of the answer.
+    @Test func aWaitThatSpansASleepStillLandsOnTheTime() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        // The kernel would not say, so nothing is rung for; the hold is what
+        // the test is about.
+        machine.powerCycle = PowerCycle(willSleep: false, hasPoweredOn: false)
+        // The Mac goes down two hours into the wait for the wake and comes
+        // back before it, the way the 08:00 wake did.
+        machine.suspendsDuring(1, for: 7_200)
+
+        _ = step(config(hour: 4), effects: machine.effects, from: 0)
+
+        #expect(machine.shownApps == ["Safari"])
+        // 04:00, to the second. The two hours the machine was down are not
+        // added to the wait.
+        #expect(machine.now == 4 * 3_600)
+    }
+
+    /// A wake whose required time is nearer than the lead has nothing to wake
+    /// for: the machine is up, because it is running this program. Asking the
+    /// kernel for a wake in the past is a log line nobody can use.
+    @Test func aWakeInsideTheLeadAsksForNoWakeAtAll() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.sleepsDuringWait = false
+
+        // 00:02 is two minutes away, and the night lead is five.
+        _ = step(config(hour: 0, minute: 2), effects: machine.effects, from: 0)
+
+        #expect(machine.wakeRequestedIn == [])
+        #expect(machine.said("no wake asked for"))
+        #expect(machine.shownApps == ["Safari"])
+        #expect(machine.now == 2 * 60)
     }
 
     // MARK: Degenerate input

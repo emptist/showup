@@ -11,18 +11,6 @@ public struct Effects: Sendable {
     public var now: @Sendable () -> Int
     /// The real date, for the argument `pmset` has to be given in calendar terms.
     public var currentDate: @Sendable () -> Date
-    /// Seconds on a clock that only ever moves forward.
-    ///
-    /// This is what a *duration* is measured with. The wall clock is a time of
-    /// day, and a time of day is not a duration: it jumps an hour forward in
-    /// spring and an hour back in autumn, and a wait counted on it would be an
-    /// hour long or an hour short on the two days that matter. A monotonic
-    /// clock is the same length on both sides of a clock change.
-    ///
-    /// It is not what *evidence* is read with: it stops while the Mac is
-    /// suspended, and the seconds a sleep cost are exactly what the idle
-    /// counter is asked about. That question keeps the wall clock.
-    public var monotonicNow: @Sendable () -> Double
     /// Sleeps for the given number of seconds, stepped against the wall clock.
     public var sleep: @Sendable (Int) -> Void
     /// Asks the kernel to bring the Mac back in that many seconds.
@@ -53,7 +41,6 @@ public struct Effects: Sendable {
     public init(
         now: @escaping @Sendable () -> Int,
         currentDate: @escaping @Sendable () -> Date,
-        monotonicNow: @escaping @Sendable () -> Double,
         sleep: @escaping @Sendable (Int) -> Void,
         scheduleWake: @escaping @Sendable (Int) -> Result<Void, ShowError>,
         idleSeconds: @escaping @Sendable () -> Int?,
@@ -70,7 +57,6 @@ public struct Effects: Sendable {
     ) {
         self.now = now
         self.currentDate = currentDate
-        self.monotonicNow = monotonicNow
         self.sleep = sleep
         self.scheduleWake = scheduleWake
         self.idleSeconds = idleSeconds
@@ -89,9 +75,11 @@ public struct Effects: Sendable {
 
 /// The longest single sleep, in seconds.
 ///
-/// A monotonic timer stops while the system is suspended, so a 396 second sleep
-/// returns after 396 seconds of *uptime* — every second the Mac spent asleep is
-/// added to the wait. Stepping bounds the overshoot to one step.
+/// A sleep is a `Thread.sleep`, and a Mac that goes down in the middle of one
+/// does not come back when the sleep asked it to: it comes back when something
+/// wakes it, which can be any time later. Stepping bounds how far past the
+/// required moment that is, because the step ends against the wall clock and
+/// the next one is not asked for once the moment has arrived.
 public let sleepStepSeconds = 10
 
 /// The next step of a stepped wait, or `nil` when the target has been reached.

@@ -282,33 +282,41 @@ observes daylight saving — mainland China has not observed it since 1991, and
 neither do most of the world's zones — the clock is not a clock twice a year:
 on the night it ends, 02:00 happens twice; on the night it starts, 02:00 does
 not happen at all. Where there is no change, the calendar is a plain calendar
-and there is nothing to be right about. Where there is, a time of day is not a
-duration, and the two kinds of second are kept apart on purpose:
+and there is nothing to be right about.
 
-- **A requirement is a moment, and the calendar says when it is.** The wait is
-  the distance from now to that moment, computed with
-  `Calendar.date(bySettingHour:)`, which knows which of the two 02:30s is next
-  and that 02:30 does not exist in spring. A 02:30 requirement on the night the
-  clocks go forward is two hours away as the wall clock counts it and one hour
-  away as the hours pass; the wait is the one that passes.
-- **A duration is counted on the monotonic clock.** The hold that keeps the
-  window until the required time counts seconds elapsed on `mach_absolute_time`,
-  which is the same length on both sides of a clock change. It also does not
-  wrap at midnight, which is why the hold no longer corrects for the clock
-  going round: the count simply cannot go backwards.
-- **Evidence keeps the wall clock.** The monotonic clock stops while the Mac is
-  suspended, and the seconds a sleep cost are exactly what the idle counter is
-  asked about. A clock that slept through the sleep would answer "none".
+The one thing this program needs from a clock is an answer to "has the required
+moment arrived yet", and the machine's own wall clock answers that. Nothing is
+accumulated, so there is nothing for midnight or a clock change to get wrong:
+the moment is one instant, the calendar said which one it was when the wake was
+chosen, and the hold asks the clock how far off it is now.
 
-Both directions of the failure this replaced are tested: two against a timezone
-that has the changes (New York, spring and autumn), where the wait is checked
-against the hours that actually pass, and two where the wall clock jumps inside
-a running hold and the wait is checked against the seconds that really went by.
-And two more against a zone that has no changes at all (Shanghai, on the same
-two nights), where the wait is the plain distance the wall clock says — which
-is what keeps a later change from quietly assuming a zone. The `--dry-run`
-delays are counted the same way, to the instant rather than between two times
-of day, for the same reason.
+That form is also the only one that survives the machine going down, which is
+the ordinary case rather than an edge. A wait counted in seconds adds the sleep
+to itself: the seconds a suspended Mac costs are exactly the seconds the wait
+did not get. Measured on this Mac, against `-t 04:00,08:00`:
+
+```
+04:16:38  holding the window for 6114s until the required time
+09:40:53  about to show Binance
+```
+
+The 08:00 window went up one hour and forty minutes late, because the counter
+on which that 6114 was measured had stopped for the two hours the Mac was down.
+A monotonic clock (`mach_absolute_time`) is the usual answer to "a duration
+that does not move when the clock does", and it is the wrong one here for
+exactly that reason: it also stops while the Mac is suspended. A wait that
+crosses a sleep is the normal case for a program whose purpose is to wake a
+sleeping machine. Measured the same way, a 04:00 window went up at 04:16:38 —
+late by the tail of a sleep, which is allowed, rather than late by the sleep
+and the tail, which is what the count produced.
+
+Both directions of the clock change are tested anyway: two against a timezone
+that has the changes (New York, spring and autumn), and two where the wall
+clock jumps inside a running hold. Two more run against a zone with no changes
+at all (Shanghai, on the same two nights), where the wait is the plain distance
+the wall clock says — which is what keeps a later change from quietly assuming
+a zone. The `--dry-run` delays are counted the same way, to the instant rather
+than between two times of day, for the same reason.
 
 When the Mac had been asleep the app goes up when the ringing stops, which is
 later than the target if you are away from the machine and exactly when you

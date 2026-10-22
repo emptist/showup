@@ -8,22 +8,21 @@ public func run(_ config: Config, effects: Effects) {
     var instantDate = effects.currentDate()
     while true {
         switch step(config, effects: effects, from: instant, at: instantDate) {
-        // The payloads are what a test asserts on; the loop needs neither.
-        case .surfaced:
-            // Step past the wake that was just handled, on the machine's own
-            // clock, rather than on the scheduled one.
+        // The payloads are what a test asserts on; the loop needs the wake.
+        case .surfaced(let wake, _):
+            // Step past the wake that was just handled by its required moment,
+            // not by the machine's clock at the moment of serving.
             //
-            // The scheduled time is where the wake was *aimed*, and the machine
-            // may not have been there when it was served: a rouse that runs
-            // long leaves the window up late, and a window that went up early
-            // put every later one early too. Carrying the machine's clock
-            // forward means the next wait is measured from where the machine
-            // actually is, and the drift cannot accumulate.
-            //
-            // A time whose moment has already passed today waits for tomorrow
-            // on its own: `nextWake` reads the clock, and a time in the past
-            // is tomorrow's. So the same wake is not served twice.
-            instant = effects.now()
+            // The moment is what the wake exists for, so the cursor moves past
+            // it however the serving went: on time, late because the rouse ran
+            // long, or not at all because nobody came. A cursor left at the
+            // clock would land back on a wake whose moment had not passed yet -
+            // a rouse that failed at 03:58 used to re-arm a wake for 03:58 and
+            // serve the same 04:00 again. The next wake is read against the
+            // machine's own clock for its date, so a moment that has passed
+            // waits for tomorrow on its own and the same wake is not served
+            // twice.
+            instant = (wake.at.secondsSinceMidnight + 1) % secondsPerDay
             instantDate = effects.currentDate()
         case .idle:
             return
@@ -45,11 +44,11 @@ public enum Step: Equatable {
 
 /// The instant the caller's reading was taken at.
 ///
-/// The seconds between the caller's reading and this one are counted on the
-/// monotonic clock, and the requirement is a moment on the calendar, so the
-/// wait is simply the distance from here to there. It is not the difference
-/// of two times of day: that difference is an hour out on the day the clock
-/// changes, and a wait an hour long shows a window an hour before it exists.
+/// The wait is the distance from here to the required moment, and the moment
+/// is settled by the calendar: `nextWakeAbsolute` knows which of the two
+/// 02:30s is next and that 02:30 does not exist at all in spring. It is not
+/// the difference of two times of day, which is an hour out on the day the
+/// clock changes.
 ///
 /// The reading defaults to now, which is what it is when a caller has nothing
 /// earlier to report.
@@ -63,7 +62,6 @@ public func step(
     }
 
     let started = effects.now()
-    let startedMono = effects.monotonicNow()
     let stepDate = effects.currentDate()
     // The wait is the distance from this reading to the required moment,
     // counted on the calendar. A negative one cannot happen - the moment is
@@ -76,14 +74,24 @@ public func step(
     // all happen inside the window rather than in the minute the app was
     // supposed to appear.
     let ahead = max(0, wait - leadFor(hour: wake.at.hour))
-    let datetime = pmsetDatetime(now: effects.currentDate(), secondsFromNow: ahead)
-    effects.log("waking at \(wake.at.rendered) (pmset \(datetime)), in \(describeDelay(wait))")
-
     // The instant the RTC alarm is set for. It settles whether a DarkWake was
     // ours or the machine's own, which the label alone cannot.
     let requestedAt = (started + ahead) % secondsPerDay
-    if case .failure(let reason) = effects.scheduleWake(ahead) {
-        effects.warn("could not schedule wake (did you run with sudo?): \(reason)")
+    if ahead > 0 {
+        let datetime = pmsetDatetime(now: effects.currentDate(), secondsFromNow: ahead)
+        effects.log("waking at \(wake.at.rendered) (pmset \(datetime)), in \(describeDelay(wait))")
+        if case .failure(let reason) = effects.scheduleWake(ahead) {
+            effects.warn("could not schedule wake (did you run with sudo?): \(reason)")
+        }
+    } else {
+        // The required time is nearer than the lead, so there is nothing to
+        // wake for: the machine is up, because it is running this program.
+        // Asking the kernel for a wake in the past is a log line nobody can
+        // use, and an alarm armed for the moment it was already at.
+        effects.log(
+            "waking at \(wake.at.rendered), in \(describeDelay(wait))"
+                + " (the time is nearer than the lead; no wake asked for)"
+        )
     }
 
     let idleBefore = effects.idleSeconds()
@@ -112,7 +120,7 @@ public func step(
             guard waitForTheLogin(effects) else {
                 return .surfaced(wake: wake, showed: .notShown(reason: "the login did not finish"))
             }
-            holdUntilTheTime(effects, since: startedMono, wait: wait)
+            holdUntilTheTime(effects, until: target)
             return .surfaced(wake: wake, showed: surface(config.app, effects))
         case .nobodyCame:
             // The app is for the user to see, and there is no user. The run
@@ -121,12 +129,12 @@ public func step(
         case .notRung:
             // Nothing was rung, so nothing is known about whether somebody is
             // there. Phase one still happens: the app is surfaced on the time.
-            holdUntilTheTime(effects, since: startedMono, wait: wait)
+            holdUntilTheTime(effects, until: target)
             return .surfaced(wake: wake, showed: surface(config.app, effects))
         }
     }
 
-    holdUntilTheTime(effects, since: startedMono, wait: wait)
+    holdUntilTheTime(effects, until: target)
     return .surfaced(wake: wake, showed: surface(config.app, effects))
 }
 
@@ -170,40 +178,40 @@ private func waitForTheLogin(_ effects: Effects) -> Bool {
     return true
 }
 
-/// Holds the window until the required time has arrived.
+/// Holds the window until the required moment has arrived.
 ///
 /// The showing side trusts no arithmetic but the clock. The wake is scheduled
 /// by a lead-time split and the ring ends when it ends, and both of those can
 /// land minutes off the required time - a real 21:00 wake brought the app up
 /// at 20:59:00 four runs out of four, once by nearly six minutes.
 ///
-/// The wait is counted as seconds elapsed since this wake began, and the count
-/// is monotone. A time of day is not a duration - it jumps an hour in spring
-/// and an hour back in autumn - so the count is kept on the clock that is one,
-/// and midnight and a clock change are the same nothing to it. A count that
-/// could go backwards would ask for the wait again, and a wait that can never
-/// be satisfied would ask for it for ever.
+/// The wait is not counted at all. It is the distance to a moment, and the
+/// machine's own clock says when that moment has arrived: the loop asks the
+/// clock, sleeps a step, and asks again. Nothing is accumulated, so there is
+/// nothing for a clock change or a midnight to get wrong - the moment is one
+/// instant, and the calendar said which one it was when the wake was chosen.
+///
+/// This is also the only form that survives the machine going down. A wait
+/// counted in seconds - on the wall clock or on a monotonic one - adds the
+/// sleep to itself: the seconds a suspended Mac costs are exactly the seconds
+/// the wait did not get, and the window goes up that much late. A real 04:00
+/// wake went up at 04:16 and an 08:00 one at 09:40 that way. Asking the clock
+/// instead means a machine that was asleep comes back to a clock that ran on
+/// without it, and the window goes up then: late, which is allowed.
 ///
 /// Late is possible; early is not.
-private func holdUntilTheTime(_ effects: Effects, since started: Double, wait: Int) {
-    // The time already spent counts: the wait for the wake and the rouse have
-    // both happened, and the window may already be late.
-    var elapsed = 0.0
-    var last = started
+private func holdUntilTheTime(_ effects: Effects, until target: Date) {
     while true {
-        let now = effects.monotonicNow()
-        elapsed += now - last
-        last = now
-        guard elapsed < Double(wait) else { return }
+        guard effects.currentDate() < target else { return }
 
-        let missing = wait - Int(elapsed.rounded(.down))
+        let missing = Int(target.timeIntervalSince(effects.currentDate()).rounded(.up))
         effects.log("holding the window for \(missing)s until the required time")
-        let before = effects.now()
+        let before = effects.currentDate()
         sleepSeconds(effects, missing)
         // A clock that does not move must not spin this loop for ever. The
         // window goes up late instead, which is a smaller failure than a
         // process that never returns and a log that never ends.
-        guard effects.now() != before else {
+        guard effects.currentDate() != before else {
             effects.warn("the clock did not move while holding the window; showing now")
             return
         }

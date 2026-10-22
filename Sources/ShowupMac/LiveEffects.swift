@@ -10,7 +10,6 @@ extension Effects {
         Effects(
             now: { secondsSinceMidnight(Date()) },
             currentDate: { Date() },
-            monotonicNow: { monotonicSeconds() },
             sleep: { Thread.sleep(forTimeInterval: Double($0)) },
             scheduleWake: { ScheduledWake.shared.schedule(in: $0) },
             idleSeconds: { Mac.idleSeconds() },

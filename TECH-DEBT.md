@@ -9,7 +9,8 @@ would touch.
 
 Line numbers were re-verified on 2026-10-21, after a pass that fixed I1, I2, O1,
 O2 and O3 (see the last section). Item 10 — the clock model — was fixed the
-next day and now lives in the resolved table; items 1–9 below are still open.
+next day, the fix was then measured failing on real hardware, and item 11 was
+found in the same log. Items 1–9 below are still open.
 
 ## Created by the ring-cap removal
 
@@ -118,7 +119,7 @@ Flagged because it is by far the most code, not because keeping it is clearly
 wrong. It is the one item here where the fallback may be worth its price on a
 machine that has not been observed to register.
 
-## Found on 2026-10-21, while fixing the wait — resolved the same week
+## Found on 2026-10-21, while fixing the wait — resolved, then reopened and resolved again
 
 ### 10. The clock is a time of day, and a time of day is not monotonic
 
@@ -134,16 +135,48 @@ saving, twice a year it does not:
   backwards and the wrap correction added the whole day. A window held across
   it waited twenty-three hours.
 
-**Resolved by separating the two kinds of second.** A requirement is a moment,
-and the calendar says when it is: the wait is now the distance to that moment,
-computed with `Calendar.date(bySettingHour:)` (`nextWakeAbsolute`,
-`Schedule.swift:47`), which knows which of the two 02:30s is next and that
-02:30 does not exist in spring. A duration is counted on the monotonic clock
-(`Effects.monotonicNow`, `mach_absolute_time`), which is the same length on
-both sides of a clock change and never wraps, so the hold no longer corrects
-for midnight at all. Evidence keeps the wall clock, deliberately: the
-monotonic clock stops while the Mac is suspended, and the seconds a sleep cost
-are exactly what the idle counter is asked about.
+**First fix: separate the two kinds of second.** A requirement became a moment,
+and the calendar said when it was: the wait is the distance to that moment,
+computed with `Calendar.date(bySettingHour:)` (`nextWakeAbsolute`), which knows
+which of the two 02:30s is next and that 02:30 does not exist in spring. A
+*duration* was counted on `mach_absolute_time`, and evidence kept the wall
+clock.
+
+**That fix was wrong, and a real run proved it within hours.** Measured on
+2026-10-22 with `-t 04:00,08:00`:
+
+```
+04:16:38  waking at 08:00 (pmset 10/22/2026 07:58:59), in 3h 43m 21s
+07:58:59  input arrived during the wait (idle 175s -> 0s over 13341s)
+07:58:59  holding the window for 6114s until the required time
+09:40:53  about to show Binance
+```
+
+The 08:00 window went up **one hour and forty minutes late**, and 07:58:59 plus
+6114 seconds is 09:40:53 to the second. A 04:00 window in the same run went up
+at 04:16:38.
+
+**The mistake.** `mach_absolute_time` stops while the Mac is suspended — the
+same property that makes it immune to a clock change makes it blind to a sleep.
+A wait that crosses a sleep is not an edge case here; it is what the program is
+for. So the duration clock owed itself every second the Mac was down, and the
+window waited them out again. The fix for a two-nights-a-year problem cost a
+one-hour-every-night one, and no test caught it: the fake machine's duration
+clock advanced with the wall clock, so the suite was asserting the arithmetic
+of a clock that does not exist on the machine.
+
+**Second fix: count nothing.** The hold asks the machine's wall clock how far
+off the moment is, and nothing is accumulated — so there is no clock for a
+suspension or a clock change to go wrong on. `Effects.monotonicNow` and
+`Monotonic.swift` are gone. A requirement is still a moment settled by the
+calendar, which is what keeps the *target* right across a clock change; only the
+counting changed.
+
+`RealRunTimelineTests` reproduces both windows to the second from the log above,
+and the six-window run they came from, with the machine going down inside each
+wait. It fails if the test double's clock is given back the property that
+started this — a clock that stops while the Mac is suspended — which is the
+check that would have caught the first fix being wrong.
 
 The zone is the system's, read through `Calendar.autoupdatingCurrent` so a
 change of setting is followed while the daemon runs. A zone without the changes
@@ -152,12 +185,19 @@ wait is the plain distance the wall clock says, and the same night is asserted
 to read differently in New York: the system's timezone is what says when a
 requirement is, and the answer belongs to the zone it was asked in.
 
-Four tests, each of which fails without the change: two against New York's
-spring and autumn, where the wait is checked against the hours that actually
-pass, and two where the wall clock jumps inside a running hold
-(`clockJumpsOnSleep` on the test double) and the wait is checked against the
-seconds that really went by. Three more pin the zone itself (`NoDaylightSavingTests`),
-and one pins the `--dry-run` plan to the same instants.
+### 11. The same wait asked the kernel to wake the Mac for a moment already past
+
+Found in the same log, at 03:58:20: `waking at 04:00 (pmset 10/22/2026
+03:58:20)`. The required time was 99 seconds away and the lead is five minutes,
+so `ahead` clamped to zero and `pmset` was asked for a wake in the past — and
+the loop then served the same 04:00 a second time, because the cursor was left
+on the machine's clock rather than moved past the wake's own moment.
+
+Both are now one thing: a required time nearer than the lead asks for no wake at
+all (the machine is up, because it is running this program), and the loop steps
+past a served wake by its moment, so a rouse that reached nobody spends the
+wake instead of re-serving it. `aWakeInsideTheLeadAsksForNoWakeAtAll` and
+`aRouseThatReachedNobodySpendsTheWake` each fail without their half.
 
 ## Not artificial
 
@@ -180,7 +220,8 @@ fixed, and each fix has a test that fails without it.
 | The same line's `now - started` was a bare difference, so two readings either side of midnight read as most of a day apart | `Scheduler.swift:63` | `secondsBetween`. `aWaitThatStraddlesMidnightIsNotAWholeDay` fails without it |
 | `waitForAlarm` and its semaphore — built for when the alarm ran on its own queue, which it no longer does | `TestDoubles.swift:67`, `:181` | Deleted, with all ten call sites. Six of those tests assert that no alarm rang, so the semaphore was never signalled and each blocked for its five second timeout; they ran in parallel, so the suite's test phase took 5.0 seconds, essentially all of it that wait. It now takes 0.35 |
 | Dead members on the test double: `desktopPolls`, `loginSeconds`, `touchKeyboard()` | `TestDoubles.swift:40`, `:43`, `:172` | Deleted |
-| The clock is a time of day, and a time of day is not monotonic: a hold spanning a clock change read the hour as an hour of wait, or as twenty-three of them | `Scheduler.swift` (the old `holdUntilTheTime`), `Time.swift:44` | Item 10, above: the wait is the distance to a calendar moment, the hold counts on the monotonic clock, and evidence keeps the wall clock. Four tests, two per direction |
+| The clock is a time of day, and a time of day is not monotonic: a hold spanning a clock change read the hour as an hour of wait, or as twenty-three of them | `Scheduler.swift` (the old `holdUntilTheTime`), `Time.swift:44` | Item 10, above. Its first fix — counting durations on `mach_absolute_time` — was measured failing on real hardware and is recorded there rather than quietly replaced, because the reason it looked right is the reason it was wrong |
+| A duration counted on `mach_absolute_time`, which stops while the Mac is suspended, so every wait that crossed a sleep owed itself the sleep again — the 08:00 window went up at 09:40:53 | `Effects.monotonicNow`, `ShowupMac/Monotonic.swift`, the old `holdUntilTheTime` | Deleted. The hold asks the wall clock how far off the moment is and accumulates nothing. `RealRunTimelineTests` reproduces both windows from the log to the second |
 
 Still open from the same review: the documentation items (the `sudo` list, the
 `slept_during` hook that no longer exists, three stale "runs on its own queue"
