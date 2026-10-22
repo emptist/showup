@@ -81,6 +81,24 @@ password, everything it installed removed, the kernel wakes it armed taken
 back one by one (`pmset schedule cancel`, not `cancelall` — nobody else's
 alarms are touched), and the logs kept for their week.
 
+### What to look at afterwards
+
+Changing the schedule is the fourth nightly act and it is yours, in your own
+session, without a password:
+
+```sh
+showup -a Safari -t 05:00,13:00 -n     # a dry-run; the standing run follows the change
+```
+
+The two nights are observations, not commands — let the machine sit, then
+read what it wrote:
+
+```sh
+pmset -g sched                                  # wakes read `by com.showup.wake` at your times
+tail -20 ~/Library/Logs/showup/showup*.log      # the run's own receipts
+tail -20 ~/Library/Logs/showup/renew.log        # the daemon's 00:05 sweep
+```
+
 ### After the install (the nightly story)
 
 At each chosen time, launchd starts a bare `showup` in your session. It reads
