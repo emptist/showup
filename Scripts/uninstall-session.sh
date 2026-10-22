@@ -55,16 +55,25 @@ fi
 rm -f "$DAEMON_PLIST" && say "      $DAEMON_PLIST removed"
 
 say "[2/5] stopping any showup that is still running"
-# The agent is going out next, but a hand-started run, or one a kill left
-# alive, does not belong to launchd. A polite stop lets its own exit handler
-# take its kernel wake back; the sweep behind this step catches whatever
-# survives.
+# The launchd-managed one is returned by its own bootout first; what is
+# left - a hand-started run, or a kill-leftover - is asked to stop the
+# same way, and killed if it refuses. The wake sweep behind this step
+# catches any kernel event the polite exits did not take back.
+if launchctl bootout gui/"$CONSOLE_UID"/"$AGENT_LABEL" 2>/dev/null; then
+    say "      the agent's run was stopped by launchd"
+fi
 if pgrep -x showup >/dev/null; then
-    pkill -x showup && say "      the running showup was asked to stop"
-    sleep 3
-    pkill -9 -x showup 2>/dev/null && say "      one showup refused to stop and was killed"
+    pkill -x showup && say "      a showup not in launchd's keeping was asked to stop"
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        pgrep -x showup >/dev/null || break
+        sleep 1
+    done
+    if pgrep -x showup >/dev/null; then
+        pkill -9 -x showup 2>/dev/null && say "      one showup refused to stop and was killed"
+    fi
+    say "      it stopped"
 else
-    say "      none was running"
+    say "      nothing else was running"
 fi
 
 say "[3/5] taking back the wakes showup armed in the kernel"
@@ -91,11 +100,6 @@ else
 fi
 
 say "[4/5] stopping the user agent and removing its plist"
-if launchctl bootout gui/"$CONSOLE_UID"/"$AGENT_LABEL" 2>/dev/null; then
-    say "      the agent was stopped"
-else
-    say "      the agent was not running"
-fi
 rm -f "$AGENT_PLIST" && say "      $AGENT_PLIST removed"
 
 say "[5/5] removing the binary, the contract and the lock (the logs and their 7-day rule stay)"

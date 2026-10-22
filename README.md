@@ -63,9 +63,12 @@ make install-session APP=Safari TIMES=04:00,08:00
 session then does seven things, saying each as it goes:
 
 1. installs the binary and its build stamp to `/usr/local/bin`;
-2. stops any `showup` that is already running — a predecessor holds the
-   instance lock, which would starve the new run's first start; the polite
-   stop lets the old run take its own kernel wake back on its way out;
+2. returns the previous night run to launchd (`bootout`) and stops any
+   `showup` not in launchd's keeping — the run the last install's agent
+   stood up is what's usually running, so it is launchd's to stop first;
+   a run somebody started by hand is asked politely and killed if it
+   refuses. The instance lock follows the process, so the new run starts
+   clean;
 3. installs the renewal daemon (`com.showup.renew` in `/Library/LaunchDaemons`),
    which runs `showup renew` daily at 00:05 — its narration lands in
    `~/Library/Logs/showup/renew.log` on your own ground, made and owned by you;

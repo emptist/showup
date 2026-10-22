@@ -4,9 +4,9 @@
 # What lands where (run `sudo Scripts/install-session.sh <app> <times>`):
 #   root, here and only here:
 #     - the release build into /usr/local/bin, with its stamp
-#     - any showup already running is stopped, by root, whatever it is:
-#       a predecessor holds the instance lock and can only be stopped
-#       by root if it is one
+#     - the showup already running is stopped, by root, whatever it is:
+#       the last install's own agent run (launchd's bootout), or a stray
+#       started by hand
 #     - /Library/LaunchDaemons/com.showup.renew.plist, and the daemon
 #       started once, so tonight's moments are armed before the Mac sleeps
 #   the user, from the same script, without needing any further password:
@@ -72,21 +72,30 @@ install -m 0755 "$BUILD_DIR/showup" /usr/local/bin/showup || die_step "cannot in
 install -m 0644 "$BUILD_DIR/showup.stamp" /usr/local/bin/showup.stamp || die_step "cannot install the build stamp"
 say "      /usr/local/bin/showup and showup.stamp installed ($(cat /usr/local/bin/showup.stamp))"
 
-say "[2/7] stopping any showup that is already running"
-# A predecessor holds the instance lock, so the agent's first bare run would
-# stop immediately and name it instead of serving the contract. A polite
-# stop lets its own exit handler take its kernel wake back; a stubborn one
-# is killed outright, and tonight's first renewal pass sweeps any wake it
-# leaves behind. This is what makes the sudo session the right place for
-# the act: a legacy root-mode run can only be stopped by root.
+say "[2/7] stopping the showup that is already running"
+# The showup that is usually running is the previous install's own: the
+# agent stands it up at load, so the install that ran before left it
+# behind. launchd owns it, and bootout returns it to death politely (its
+# exit handler takes its kernel wake back). A showup somebody started by
+# hand - or a legacy root-mode one - is not in launchd's keeping: it is
+# asked to stop the same way, and killed if it refuses. The lock follows
+# the process either way, so the new run starts clean.
+if launchctl bootout gui/"$CONSOLE_UID"/"$AGENT_LABEL" 2>/dev/null; then
+    say "      the previous agent's run was stopped by launchd"
+fi
 if pgrep -x showup >/dev/null; then
-    pkill -x showup && say "      the running showup was asked to stop"
-    sleep 3
-    pkill -9 -x showup 2>/dev/null && say "      one showup refused to stop and was killed"
-    pgrep -x showup >/dev/null && die_step "a showup process cannot be stopped; kill it by pid: $(pgrep -x showup)"
+    pkill -x showup && say "      a showup not in launchd's keeping was asked to stop"
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        pgrep -x showup >/dev/null || break
+        sleep 1
+    done
+    if pgrep -x showup >/dev/null; then
+        pkill -9 -x showup 2>/dev/null && say "      one showup refused to stop and was killed"
+    fi
+    pgrep -x showup >/dev/null && die_step "a showup will not stop; kill it by pid: $(pgrep -x showup)"
     say "      it stopped"
 else
-    say "      none was running"
+    say "      nothing else was running"
 fi
 
 say "[3/7] writing the renewal daemon plist"
@@ -191,9 +200,8 @@ rm -f /tmp/showup-agent.plist
 say "      $AGENT_PLIST written: bare '/usr/local/bin/showup', at load and at $TIMES"
 
 say "[7/7] starting the user agent"
-if launchctl bootout gui/"$CONSOLE_UID"/"$AGENT_LABEL" 2>/dev/null; then
-    say "      an older agent was stopped first"
-fi
+# Its predecessor was bootout-ed back in [2/7], so this bootstrap has a
+# clean label to load and no process to inherit a lock from.
 launchctl bootstrap gui/"$CONSOLE_UID" "$AGENT_PLIST" || die_step "cannot bootstrap the user agent"
 say "      the agent started once at load (it will be at $LOG_DIR's newest file)"
 
@@ -206,7 +214,7 @@ Install done. One password was asked for, this one's.
   renewal      $DAEMON_PLIST, daily 00:05 and tonight's first pass already run
   night run    $AGENT_PLIST, started once; it stands and serves the contract
   everything   told in $LOG_DIR/
-  stopped      any showup that was already running (so the new run owns the lock)
+  stopped      the previous agent's run (launchd's own) and any stray showup
 
 From here on, changing the schedule is a user act, no password:
   showup -a <app> -t <times>          (or the same with --dry-run)
