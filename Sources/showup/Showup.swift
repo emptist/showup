@@ -22,7 +22,16 @@ enum Showup {
         case .showSchedule(let config):
             printSchedule(config)
         case .show(let config):
+            // The lock is taken before anything else, so two runs never arm
+            // two wakes or surface anything twice.
+            if !InstanceLock.hold() { exit(1) }
             announceLog()
+            if let stamp = readBuildStamp() {
+                Log.write(stamp)
+            } else {
+                Log.write("no build stamp; this binary was not built with make")
+            }
+            Log.pruneOldRuns()
             // Which of the two detection paths this run will use is worth
             // saying up front: the kernel's own notifications, or the power log.
             Log.write(
@@ -40,7 +49,12 @@ enum Showup {
     /// Says what the kernel already has armed, so an alarm nobody expects is
     /// visible at startup rather than discovered later as a Mac waking up for no
     /// reason.
+    ///
+    /// The take-back of leftovers happens first, under the instance lock: a run
+    /// killed outright leaves its wake armed, and this is the only place left
+    /// to take it back. What is listed afterwards is what survived the clean-up.
     static func leaveNothingArmed() {
+        ScheduledWake.shared.takeBackLeftovers()
         let armed = ScheduledWake.shared.armedWakes()
         guard !armed.isEmpty else { return }
         Log.write("the kernel already has \(armed.count) wake\(armed.count == 1 ? "" : "s") armed:")

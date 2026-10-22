@@ -57,6 +57,24 @@ public final class ScheduledWake: @unchecked Sendable {
         _ = IOPMCancelScheduledPowerEvent(when as CFDate, identifier, kIOPMAutoWake as CFString)
     }
 
+    /// Takes back every wake still armed under this program's identifier.
+    ///
+    /// The stop handler only answers signals, so a run killed outright - a
+    /// `kill -9`, or a crash - leaves its wake armed and nobody to take it
+    /// back. Measured: one run left theirs armed for two days, and the Mac
+    /// woke for it alone. Nothing else may hold this identifier while the
+    /// single-instance lock is ours, so anything left under it is a leftover:
+    /// taken back here rather than recorded in a file that would have to
+    /// survive the same kill.
+    public func takeBackLeftovers() {
+        let ours = armedWakes().filter { $0.owner == identifier as String }
+        for wake in ours {
+            _ = IOPMCancelScheduledPowerEvent(
+                wake.when as CFDate, identifier, kIOPMAutoWake as CFString
+            )
+        }
+    }
+
     /// Every RTC wake currently armed, so a leftover can be seen rather than
     /// discovered later as a Mac that wakes up for no reason.
     public func armedWakes() -> [(when: Date, owner: String)] {

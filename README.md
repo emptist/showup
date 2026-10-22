@@ -46,6 +46,11 @@ is self contained. Putting it somewhere on your `PATH` installs it:
 install -m 0755 .build/debug/showup /usr/local/bin/showup
 ```
 
+A copy installed by hand is stampless: `make` writes the identity stamp
+(`.build/debug/showup.stamp`) beside the binary, and a run that finds no stamp
+next to itself says so rather than assuming anything. `make install` installs
+both.
+
 ## Usage
 
 ```text
@@ -567,9 +572,9 @@ line is affected, never what `showup` does.
 ## Development
 
 ```sh
-make build                           # swift build
+make build                           # swift build, stamped
 make test                            # swift test
-make release install                 # optimised build, installed to /usr/local/bin
+make release install                 # optimised build, installed to /usr/local/bin with its stamp
 swift run showup -a Safari -t 9:00 --dry-run   # run without installing
 ```
 
@@ -650,13 +655,45 @@ when it started:
 ```
 showup: logging to /var/log/showup1758290000.log
 ```
-
 so a single run can be read on its own, nothing grows without bound, and the
-directory sorts into the order the runs happened in. Each line carries the time
-of day it was written, and each wake records the numbers it was decided from —
-which idle counter reading, how long the wait was — so a wake that rang when it
-should not have can be worked out after the fact rather than guessed at.
+directory sorts into the order the runs happened in.
 
+The file is root owned and world readable (`0644`): the log is for whoever has
+to read it later, often without root's help, and it is not writable by anybody
+but its owner. Each one is kept for a week; the next run deletes anything older,
+which it says so in its own log.
+
+Each line carries the time of day it was written, and each wake records the
+numbers it was decided from — which idle counter reading, how long the wait was —
+so a wake that rang when it should not have can be worked out after the fact
+rather than guessed at.
+
+The first line of a run answers the question every post-mortem starts with:
+which binary produced it.
+
+```
+build 0404c92 2026-10-22 13:53 +0800
+```
+
+The line comes from a stamp `make` writes next to the binary, refreshed on every
+build, and `make install` installs it beside the binary. A binary not built by
+make has no stamp and says so plainly, rather than borrowing the identity of
+nothing. Three different binaries wrote logs to this directory in one day, and
+defects that the code had already fixed kept being rediscovered in runs made by
+code that carried the fix; the stamp is what stops that.
+
+Only one instance runs at a time, and that is decided by the kernel rather than
+by attention: `flock` on `/var/log/showup.lock`, held for the life of the
+process, released on exit and on death, so a crash leaves no lock behind. A
+second run stops and names the first one's pid. Without sudo the lock cannot be
+made, which is warned about the same way scheduling cannot be done.
+
+A run killed outright — `kill -9`, or a crash — cannot run its stop handler, so
+its RTC wake would stay armed until it fired for nobody. So each run, at
+startup and under the lock, takes back every wake still armed under its own
+identifier `com.showup.wake` before listing what the kernel holds: a leftover
+can only be its own previous life, and the list that follows is the truth after
+the clean-up.
 The directory is `/var/log` and not `/tmp`, and that is not a style choice.
 `showup` runs as root and `/tmp` is world writable, so a file there is a way for
 an unprivileged user to decide where a root process writes. `/var/log` is root

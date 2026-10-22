@@ -12,6 +12,27 @@ public func logPath(now: Date = Date()) -> String {
     "/var/log/showup\(Int(now.timeIntervalSince1970)).log"
 }
 
+/// How long an old run's log is kept before the next run deletes it.
+///
+/// One file per run plus no limit is a directory that grows without bound: the
+/// bug collector here stopped at eleven files in three days. A week covers
+/// every wake anyone traced in practice, and the files self sort by epoch, so
+/// the oldest are the ones that go.
+public let logRetentionSeconds: TimeInterval = 7 * 24 * 60 * 60
+
+/// Whether an entry of the log directory is an old log of this program's.
+///
+/// Only names the pattern `showup<number>.log` produces could ever have been
+/// written by showup. The type has to be a regular file as seen by `lstat` -
+/// `attributesOfItem(atPath:)` does not follow symlinks - so nothing that
+/// points elsewhere is deleted whatever its name. A minute early is not old.
+public func prunableLog(_ name: String, isRegularFile: Bool, modified: Date, now: Date) -> Bool {
+    guard isRegularFile, name.hasPrefix("showup"), name.hasSuffix(".log") else { return false }
+    let number = name.dropFirst("showup".count).dropLast(".log".count)
+    guard !number.isEmpty, number.allSatisfy(\.isNumber) else { return false }
+    return modified < now.addingTimeInterval(-logRetentionSeconds)
+}
+
 /// What showup did, and when, in a file that survives the terminal.
 ///
 /// The directory is `/var/log`, not `/tmp`, and that is not a style choice.
@@ -27,12 +48,48 @@ public enum Log {
     public static let path = logPath()
 
     private static let descriptor: Int32 = {
-        let file = open(path, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o600)
+        // Readable, not writable: the log is for the person who looks later, and
+        // it is not a file an unprivileged user may alter - it is root's to
+        // write and the directory is root's to name files in.
+        let file = open(path, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o644)
         return file < 0 ? -1 : file
     }()
 
     /// Whether this run can write its log at all, which without sudo it cannot.
     public static var isWritable: Bool { descriptor >= 0 }
+
+    /// Deletes logs of runs that ended more than a week ago, and says so.
+    ///
+    /// Best effort, before anything else is written: a directory that cannot be
+    /// read (running without sudo) prunes nothing and stays quiet about it.
+    @discardableResult
+    public static func pruneOldRuns(now: Date = Date()) -> Int {
+        let directory = "/var/log"
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory) else {
+            return 0
+        }
+        var pruned = 0
+        for name in names {
+            let path = directory + "/" + name
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+                attributes[.type] as? FileAttributeType == .typeRegular,
+                let modified = attributes[.modificationDate] as? Date,
+                prunableLog(name, isRegularFile: true, modified: modified, now: now)
+            else {
+                continue
+            }
+            do {
+                try FileManager.default.removeItem(atPath: path)
+                pruned += 1
+            } catch {
+                Log.write("WARNING could not prune old log \(path): \(error.localizedDescription)", to: .standardError)
+            }
+        }
+        if pruned > 0 {
+            Log.write("pruned \(pruned) of this program's older logs from \(directory)")
+        }
+        return pruned
+    }
 
     /// Prints to the given stream and appends a stamped copy to the log file.
     ///
