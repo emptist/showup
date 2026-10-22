@@ -17,7 +17,7 @@ define write_stamp
 	  printf 'build $(SHA) $(DATE)\n' > $(call stamp_file,$(1))
 endef
 
-.PHONY: all build release test clean install
+.PHONY: all build release test clean install install-session uninstall-session
 
 all: build
 
@@ -40,3 +40,17 @@ clean:
 install: release
 	install -m 0755 .build/release/showup /usr/local/bin/showup
 	install -m 0644 .build/release/showup.stamp /usr/local/bin/showup.stamp
+
+# The install session: the release build happens here, unsudo'd, so .build
+# stays the user's; the script's sudo is the only password the design asks
+# for. Usage: make install-session APP=<app> TIMES=<04:00,08:00>
+install-session: release
+	@ACTUAL_APP="$(APP)" ACTUAL_TIMES="$(TIMES)"; \
+	if [ -z "$$ACTUAL_APP" ] || [ -z "$$ACTUAL_TIMES" ]; then \
+		echo "Usage: make install-session APP=<app> TIMES=<04:00,08:00>"; \
+		exit 2; \
+	fi; \
+	sudo Scripts/install-session.sh "$$ACTUAL_APP" "$$ACTUAL_TIMES"
+
+uninstall-session:
+	sudo Scripts/uninstall-session.sh

@@ -28,8 +28,8 @@ Plans:
 **Plans**: 2.
 
 Plans:
-- [ ] 02-01: The contract and the renewal planner (schedule file, pure renewal logic, `renew` subcommand, tests)
-- [ ] 02-02: Installer + daemon daemon-plist + agent plist + rollback, with a blocking real-overnight human verification
+- [x] 02-01: The contract and the renewal planner (schedule file, pure renewal logic, `renew` subcommand, tests)
+- [x] 02-02: Installer + daemon daemon-plist + agent plist + rollback, with a blocking real-overnight human verification (sandbox-verifiable work done — the password, the two nights, and the uninstall receipt remain)
 
 ### Phase 3: the bill of the change
 **Goal**: the two-installable-artifact problem is stamped; docs say what changed, what to do when coming from root-mode, and what the new costs are.
@@ -43,8 +43,8 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. run as a plain user | 0/3 | Not started | - |
-| 2. the sudo-once | 0/2 | Not started | - |
+| 1. run as a plain user | 3/3 | Done | 2026-10-23 |
+| 2. the sudo-once | 2/2 | awaiting human gates | - |
 | 3. the bill of the change | 0/1 | Not started | - |
 
 ## Pre-decided (recorded with rationale, revisit-able at 02-01's checkpoint)

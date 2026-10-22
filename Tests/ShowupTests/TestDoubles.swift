@@ -93,6 +93,12 @@ final class FakeMachine: @unchecked Sendable {
         source: .ac, displaySleepMinutes: 20, systemSleepMinutes: 25, powerNap: true
     )
     var scheduleWakeFails = false
+    /// A wake refused where the kernel list is root ground: the designed
+    /// handoff instead of a failure. The handoff line rides the first refusal
+    /// of the run; refusals after that are the same standing fact, already
+    /// said, exactly as the real wake act reports it.
+    var scheduleWakeIsARootlessHandoff = false
+    private var handoffAnnounced = false
     var wakeKind: WakeKind = .full
     /// How long the alarm takes to be answered, in seconds of the fake clock.
     var alarmTakesSeconds = 0
@@ -173,7 +179,14 @@ final class FakeMachine: @unchecked Sendable {
     }
 
     private func recordWakeRequest(_ seconds: Int) -> Result<Void, ShowError> {
-        lock.withLock { wakeRequestedIn.append(seconds) }
+        let refused: Result<Void, ShowError>? = lock.withLock {
+            wakeRequestedIn.append(seconds)
+            guard scheduleWakeIsARootlessHandoff else { return nil }
+            let first = !handoffAnnounced
+            handoffAnnounced = true
+            return .failure(.wakeIsNotOurs(announced: first))
+        }
+        if let refused { return refused }
         return scheduleWakeFails
             ? .failure(.failed(command: "pmset", status: 1, detail: "not permitted"))
             : .success(())

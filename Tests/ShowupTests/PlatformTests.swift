@@ -46,3 +46,23 @@ import Testing
         }
     }
 }
+
+/// The surfacing command, shaped by the identity of the runner.
+///
+/// A run that is not root surfaces as itself: it already stands in the session
+/// that has a desktop, so its `open -a` is plain and no uid is resolved. Root
+/// has no session of its own, so it borrows the console user's with
+/// `launchctl asuser`, unchanged from the days when every run was root.
+@Suite struct SurfaceCommandTests {
+    @Test func aRunThatIsNotRootSurfacesAsItself() {
+        let (executable, arguments) = Mac.surfaceCommand(asRoot: false, uid: "", app: "Safari")
+        #expect(executable == "/usr/bin/open")
+        #expect(arguments == ["-a", "Safari"])
+    }
+
+    @Test func theRootRunBorrowsTheConsoleSession() {
+        let (executable, arguments) = Mac.surfaceCommand(asRoot: true, uid: "501", app: "Safari")
+        #expect(executable == "/bin/launchctl")
+        #expect(arguments == ["asuser", "501", "/usr/bin/open", "-a", "Safari"])
+    }
+}

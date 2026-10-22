@@ -32,33 +32,76 @@ it is waiting for you the moment you type your password.
 
 ## Where the design is going (decided 2026-10-22)
 
-Everything below this section describes how the **installed binary behaves
-today** — its `sudo`, its `/var/log` log, its `launchctl asuser` surfacing.
-None of it has changed, and it is written as the present tense because it is
-still true tonight.
+Everything below the install section describes how the **installed binary
+behaves today** — its `sudo`, its `/var/log` log, its `launchctl asuser`
+surfacing. None of it has changed, and it is written as the present tense
+because it is still true tonight. The root shape is kept: running it with
+sudo, exactly as documented, keeps working unchanged for as long as anyone
+wants it.
 
-A direction has been decided and planned for the next stretch of work, and
-it changes exactly one thing in kind: **where the password lives.**
+The decided direction changes exactly one thing in kind: **where the
+password lives.** The nightly run stops executing as root; the one
+privileged act — arming the kernel's wake — moves behind a single password
+paid once at install time. The reason is not aesthetics: most of what the
+root run does after its password is identity work — proving who is the
+console user, whose wake is whose kernel entry, which pid holds which lock —
+and a run in its own skin stops needing any of it. The receipts for why this
+is the only shape are in `.planning/BRIEF.md` (Apple's own "Must be called
+as root" documentation for both wake scheduling commands, the one-slot cap
+and renewal bookkeeping of `pmset repeat`, launchd's documented
+wake-coalescing semantics, six open-source alarm projects audited — none of
+which found a user-mode door for the wake itself), and the work order is
+`.planning/ROADMAP.md` with one executable plan per step.
 
-- The nightly run stops executing as root. It becomes an ordinary session
-  process — logs under `~/Library/Logs/showup`, lock on ground it owns, and
-  it surfaces the app with a plain `open -a`, with no `asuser`, because
-  there is nobody else's session to borrow. The reason is not aesthetics:
-  most of what the root run does after its password is identity work —
-  proving who is the console user, whose wake is whose kernel entry, which
-  pid holds which lock — and a run in its own skin stops needing any of it.
-- The one privileged act, arming the kernel's wake, moves behind a single
-  password paid **once, at install time**: a root renewal daemon re-arms
-  each night's one-shot wakes from a schedule file that the unprivileged
-  side writes freely, so changing the times later never needs a password
-  either. Old behavior is kept: running it as root (as documented below)
-  keeps working throughout, unchanged, for as long as anyone wants it.
-- The receipts are in `.planning/BRIEF.md` (Apple's own "Must be called as
-  root" documentation for both wake scheduling commands, the one-slot cap
-  and renewal bookkeeping of `pmset repeat`, launchd's documented
-  wake-coalescing semantics, six open-source alarm projects audited — none
-  of which found a user-mode door for the wake itself), and the work order
-  is `.planning/ROADMAP.md` with one executable plan per step.
+### The install (one password, then never again)
+
+```sh
+make install-session APP=Safari TIMES=04:00,08:00
+```
+
+`make` builds the release binary and asks for the password once. The install
+session then does six things, saying each as it goes:
+
+1. installs the binary and its build stamp to `/usr/local/bin`;
+2. installs the renewal daemon (`com.showup.renew` in `/Library/LaunchDaemons`),
+   which runs `showup renew` daily at 00:05 — its narration lands in
+   `~/Library/Logs/showup/renew.log` on your own ground, made and owned by you;
+3. loads the daemon and runs the first renewal right then, so the password
+   pays for tonight's wake immediately;
+4. seeds the schedule contract with a dry-run in your session — the same
+   preview a normal run prints, written to
+   `~/Library/Application Support/showup/schedule.txt`;
+5. installs the launch agent (`com.showup` in `~/Library/LaunchAgents`), a
+   bare `showup` with an interval at each of the chosen times;
+6. loads the agent, which starts the first full run immediately.
+
+It prints a receipt of everything it touched, and the same lines are what
+`README.md` documents. `make uninstall-session` is the same in reverse: one
+password, everything it installed removed, the kernel wakes it armed taken
+back one by one (`pmset schedule cancel`, not `cancelall` — nobody else's
+alarms are touched), and the logs kept for their week.
+
+### After the install (the nightly story)
+
+At each chosen time, launchd starts a bare `showup` in your session. It reads
+the contract for the schedule, arms for today's remaining times, surfaces the
+app — and stays. Your own runs keep writing the contract and the standing run
+follows the changes without a restart: a time removed mid-hold is withdrawn
+(no alarm, no app), a time added is served. The 00:05 daemon keeps the
+kernel's one-shot wakes matched to the contract, so a change is picked up at
+the next sweep even with no user act along the way.
+
+Two honest costs, stated with the promise rather than after it:
+
+- A schedule change can leave at most one stale kernel wake armed, until
+  00:05's sweep takes it back. Its cost is one unexplained wake-up: the
+  machine wakes, the agent's interval coalesces or the fresh run reads the
+  contract, nothing happens that the old schedule asked for.
+- The installs land on a real machine only when its password is given. The
+  scripts are shellcheck-clean and every step is receipted, but the
+  two-night verification (24:00-overnight renewals, DST nights, the
+  reinstall and uninstall receipts) is still owed — this section describes
+  the built shape, not a machine that has lived under it yet.
 
 Sections below that hinge on the root run — the opening `sudo` paragraph,
 the `launchctl asuser` row, *The log*, the design-implications list — carry
@@ -93,6 +136,8 @@ both.
 
 ```text
 showup -a <app> -t <times> [-n] [-q]
+showup                                 # serve the schedule the contract carries
+showup renew <contract-directory>
 
   -a, --app <name>      The application to surface, for example "Safari".
   -t, --times <times>   Comma separated times of day, such as
@@ -102,6 +147,14 @@ showup -a <app> -t <times> [-n] [-q]
   -q, --no-ring         Never make a sound.
   -h, --help            Show the full message.
 ```
+
+The forms saying no schedule (`showup` bare) are the installed run's: they
+read the schedule contract the user's own runs write (`schedule.txt`) and
+serve it, re-reading it between moments, so a changed schedule is followed by
+the run standing in the session without a restart. Bare with no contract in
+place is refused with the line that says where one is written from. `renew`
+is the renewal side's act and belongs to root; see *Where the design is
+going*.
 
 `--no-ring` is worth understanding before you use it. By default `showup`
 only ever rings when it had to wake a sleeping Mac — never when the machine was

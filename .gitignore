@@ -8,3 +8,8 @@ erl_crash.dump
 
 # scratch from probing Swift signatures
 Sig.*
+# session scratch
+.tmp/
+
+# agent session memory
+.workbuddy/

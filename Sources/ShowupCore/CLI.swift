@@ -1,4 +1,18 @@
 public func parseCLI(_ arguments: [String]) throws(ShowError) -> Command {
+    // The renewal is a positional command, not a flag set: it takes the one
+    // thing it is not allowed to guess, the directory the contract lives in.
+    if arguments.first == "renew" {
+        guard arguments.count == 2 else { throw ShowError.missingValue("renew") }
+        return .renew(directory: arguments[1])
+    }
+
+    // Nothing said at all is the installed night run: the schedule it serves
+    // is whoever's contract is on the user ground, not an argument. Every
+    // other shape still has to say its app, the way it always has.
+    if arguments.isEmpty {
+        return .runFromContract
+    }
+
     var app: String?
     var times: [TimeOfDay] = []
     var ring = true

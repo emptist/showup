@@ -18,6 +18,13 @@ public enum ShowError: Error, Equatable, CustomStringConvertible {
     case failed(command: String, status: Int32, detail: String)
     case unexpectedOutput(what: String, sample: String)
 
+    // The kernel's wake list is root ground. Refused there is not seen as a
+    // failure to nag about but a designed handoff: the run says the line once
+    // - `announced` is set only for the refusal that gets to say it - and every
+    // refusal after that in the same run is the same standing fact, already
+    // on record. No silence anywhere: the first moment still speaks.
+    case wakeIsNotOurs(announced: Bool)
+
     public var description: String {
         switch self {
         case .missingApp:
@@ -46,6 +53,8 @@ public enum ShowError: Error, Equatable, CustomStringConvertible {
                 : "\(command) exited with status \(status): \(detail)"
         case .unexpectedOutput(let what, let sample):
             "could not understand the \(what) output, which began: \(sample)"
+        case .wakeIsNotOurs:
+            "the wake is the renewal side's to arm; this run does not own the kernel list"
         }
     }
 }

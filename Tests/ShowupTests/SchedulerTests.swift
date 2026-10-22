@@ -180,6 +180,27 @@ import Testing
         #expect(outcome != .idle)
     }
 
+    /// A refusal to schedule where the kernel list is root ground is a designed
+    /// handoff, not a failure: the line is said once per run, never with a nag
+    /// about sudo, and the loop keeps going either way.
+    @Test func aWakeTheKernelRefusesTheUserIsAHandoffLineSaidOnce() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.scheduleWakeIsARootlessHandoff = true
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+        machine.advance(3_600)
+        let second = step(config(hour: 9), effects: machine.effects, from: machine.now)
+
+        let handoffs = machine.logLines.filter {
+            $0.contains("the wake is the renewal side's to arm")
+        }
+        #expect(handoffs.count == 1)
+        #expect(!machine.didWarn("did you run with sudo?"))
+        #expect(machine.shownApps == ["Safari", "Safari"])
+        #expect(second != .idle)
+    }
+
     // MARK: The window actually lands on the time
 
     /// The point of the whole lead window: whatever happened inside it, the
@@ -231,6 +252,124 @@ import Testing
 
         #expect(machine.said("sleeps on its own after 20m"))
         #expect(machine.said("displaysleep 20m, sleep 25m"))
+    }
+
+    /// The schedule a run serves need not be the schedule it was started
+    /// with - not only between moments, but *inside* one. The run stood up
+    /// when the contract said 9:00; while it held for it the person changed
+    /// the contract; the wait for 9:00 is abandoned and the fresh contract's
+    /// 20:00 is served instead. The run that never consults the contract
+    /// would surface 9:00 anyway - one voice saying it serves the times of
+    /// day the contract stopped carrying.
+    @Test func theRunServesTheScheduleTheContractCarriesByThen() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.sleepsDuringWait = false
+
+        let nine = TimeOfDay(hour: 9, minute: 0)
+        let eight = TimeOfDay(hour: 20, minute: 0)
+        var asks = 0
+        let refresh: () -> Config? = {
+            asks += 1
+            if machine.now >= 20 * 3_600 && !machine.shownApps.isEmpty {
+                // The changed schedule's own moment has been served; nobody
+                // is owed anything after it, and the run is done.
+                return Config(app: "Safari", times: [], ring: true, dryRun: false)
+            }
+            return asks <= 5
+                ? nil  // the word the run stood up with still stands
+                : Config(app: "Safari", times: [eight], ring: true, dryRun: false)
+        }
+
+        run(
+            Config(app: "Safari", times: [nine], ring: true, dryRun: false),
+            effects: machine.effects,
+            scheduleRefresh: refresh
+        )
+
+        // 9:00 was abandoned mid-hold, never surfaced; 20:00, the schedule
+        // the contract came to carry, was.
+        #expect(machine.shownApps == ["Safari"])
+        #expect(machine.now == 20 * 3_600)
+    }
+
+    /// The same story inside a step: a changed schedule ends the waiting as
+    /// `.withdrawn` - no alarm, no app - at whatever ten-second step the
+    /// change arrived at, not at the moment the old schedule was serving.
+    @Test func aStepWhoseScheduleChangedInsideTheWaitIsWithdrawn() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+
+        var asked = 0
+        let changed: () -> Bool = {
+            asked += 1
+            return asked >= 5  // the change arrives mid-wait and stays changed
+        }
+
+        let outcome = step(config(hour: 9), effects: machine.effects, from: 0, scheduleChanged: changed)
+
+        #expect(outcome == .withdrawn)
+        #expect(machine.shownApps == [])
+        #expect(machine.now == 50)  // five ten-second checks in, then stopped
+        #expect(!machine.said("brought"))
+    }
+
+    /// The lead can run out before the wait starts - a moment three minutes
+    /// away has a five-minute night lead, there is nothing ahead to sleep
+    /// through, and the whole wait happens inside the hold. A failure receipt
+    /// proved that stretch was unhooked: the change landed, the moment went up
+    /// anyway. That hold is still the wait for the wake, so it follows the
+    /// schedule too.
+    @Test func aLeadlessWaitIsWithdrawnWhenTheScheduleChangesInsideItsHold() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.sleepsDuringWait = false
+
+        var asked = 0
+        let changed: () -> Bool = {
+            asked += 1
+            return asked >= 5  // the change arrives inside the hold
+        }
+
+        // A 00:10 moment waited from 00:00: the five-minute night lead leaves
+        // nothing ahead, so the step falls straight into its hold.
+        let outcome = step(config(hour: 0, minute: 10), effects: machine.effects, from: 0, scheduleChanged: changed)
+
+        #expect(outcome == .withdrawn)
+        #expect(machine.shownApps == [])
+        #expect(!machine.said("brought"))
+    }
+
+    /// The holds that follow a real wake are not given the hook: the machine
+    /// is up, somebody may be at the screen, and the moment went up for them.
+    /// A schedule change inside one of those holds waits for the next moment
+    /// instead of pulling the one already served back out.
+    ///
+    /// The count pins the boundary honestly. From here to a 00:10 moment the
+    /// ask is a five-minute lead: thirty ten-second checks through the wake
+    /// wait, then the one final check it ends on - thirty-one asks, and none
+    /// from the hold after. A hold that did ask would push the counter past
+    /// thirty-one, the answer would turn true, and the moment would come back
+    /// as `.withdrawn` instead of being served.
+    @Test func aHoldThatFollowsAWakeIsNotWithdrawnTheScheduleChanged() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.sleepsDuringWait = true
+        machine.setIdleCounter(60)
+        machine.alarmTakesSeconds = 30
+
+        var asked = 0
+        let changed: () -> Bool = {
+            asked += 1
+            return asked > 31  // true only once the wake is over
+        }
+
+        let outcome = step(config(hour: 0, minute: 10), effects: machine.effects, from: 0, scheduleChanged: changed)
+
+        #expect(outcome == .surfaced(wake: Wake(at: TimeOfDay(hour: 0, minute: 10), delay: 10 * 60), showed: .surfaced))
+        #expect(machine.shownApps == ["Safari"])
+        #expect(asked == 31)  // every check was the wake-wait's; the hold asked none
+        #expect(machine.now == 10 * 60)
     }
 
     // MARK: Surfacing, and who is there to see it

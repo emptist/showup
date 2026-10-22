@@ -26,21 +26,48 @@ public final class ScheduledWake: @unchecked Sendable {
     private let lock = NSLock()
     private var scheduledFor: Date?
 
+    /// Whether this run has said the handoff line for not owning the kernel
+    /// act. The refusal at `schedule`, the skip in the leftover take-back and
+    /// the skip on the way out are all one standing fact, and the run says it
+    /// once: the first time anything tries anyway.
+    private var handoffSaid = false
+
     private init() {}
+
+    /// The handoff line, for exactly one ask per run.
+    ///
+    /// The take-back sites live outside this type's own logging - they log in
+    /// the entry file - so they ask here for the words. The first site that
+    /// asks gets the line; every later ask is nil, because the fact is already
+    /// on record. Root never needs it.
+    public func wakeHandoffLine() -> String? {
+        lock.withLock {
+            if handoffSaid { return nil }
+            handoffSaid = true
+            return ShowError.wakeIsNotOurs(announced: true).description
+        }
+    }
 
     /// Asks the kernel to bring the Mac back in that many seconds.
     ///
     /// Any wake still armed from the previous pass is taken back first: the
     /// alarm is one alarm, not a queue of them.
+    ///
+    /// A refusal on the user path is the designed handoff, not a failure: the
+    /// error carries `announced` once, at the run's first refusal, and the
+    /// scheduling site logs the line for that one and carries on. Refusals
+    /// after that are the same standing fact, already said.
     public func schedule(in seconds: Int) -> Result<Void, ShowError> {
         cancel()
 
         let when = Date().addingTimeInterval(Double(seconds))
         let status = IOPMSchedulePowerEvent(when as CFDate, identifier, kIOPMAutoWake as CFString)
         guard status == kIOReturnSuccess else {
-            return .failure(
-                .failed(command: "IOPMSchedulePowerEvent", status: status, detail: "this needs root")
-            )
+            return .failure(.wakeIsNotOurs(announced: lock.withLock {
+                let first = !handoffSaid
+                handoffSaid = true
+                return first
+            }))
         }
         lock.withLock { scheduledFor = when }
         return .success(())
@@ -66,7 +93,13 @@ public final class ScheduledWake: @unchecked Sendable {
     /// single-instance lock is ours, so anything left under it is a leftover:
     /// taken back here rather than recorded in a file that would have to
     /// survive the same kill.
+    ///
+    /// The sweep is a root act - cancelling is the same privilege as
+    /// scheduling - so a run without it does nothing here and says the
+    /// standing handoff from its own site instead. Nothing was armed by runs
+    /// like it either, so there is nothing of ours for the kernel to keep.
     public func takeBackLeftovers() {
+        guard Ground.isRoot else { return }
         let ours = armedWakes().filter { $0.owner == identifier as String }
         for wake in ours {
             _ = IOPMCancelScheduledPowerEvent(

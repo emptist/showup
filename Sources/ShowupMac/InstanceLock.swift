@@ -10,24 +10,32 @@ import Foundation
 /// closes on exit and on death, so a crash releases it and it leaves nothing
 /// behind for the next run to be confused by.
 public enum InstanceLock {
-    /// The file the lock is held on. The log directory is root's alone, so
-    /// the holder of the lock has to be root, which is the only way showup
-    /// arms a wake anyway.
-    public static let path = "/var/log/showup.lock"
+    /// The file the lock is held on, on the ground the run takes it on: root's
+    /// ground holds it under `/var/log`, and a run that is not root holds it
+    /// under its own support directory.
+    public static var path: String { Ground.lockPath(directory: Ground.lockDirectory) }
 
     /// Takes the lock, or explains the run that holds it.
     ///
-    /// Returns `false` when another instance already holds the lock; a lock
-    /// that could not even be created (a run without sudo) is a warning and a
-    /// run without a lock, because those runs cannot arm wakes either.
+    /// Returns `false` when another instance already holds the lock, or when
+    /// this run could not take a lock on a ground it owns and has nothing to
+    /// fall back to; a lock that could not even be created on root's ground is a
+    /// warning and a run without a lock, because those runs cannot arm wakes
+    /// anyway.
     @discardableResult
     public static func hold() -> Bool {
         let fd = open(path, O_WRONLY | O_CREAT | O_NOFOLLOW, 0o644)
         guard fd >= 0 else {
+            if Ground.isRoot {
+                FileHandle.standardError.write(
+                    Data("showup: cannot place the instance lock (running without sudo); this run is not locked\n".utf8)
+                )
+                return true
+            }
             FileHandle.standardError.write(
-                Data("showup: cannot place the instance lock (running without sudo); this run is not locked\n".utf8)
+                Data("showup: cannot place the instance lock at \(path); this run cannot proceed without one\n".utf8)
             )
-            return true
+            return false
         }
         guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
             let status = errno

@@ -14,6 +14,11 @@ extension Mac {
     /// runs as root and an API that only answers in one of the two is not
     /// usable here.
     ///
+    /// The only caller left is root's surfacing path: `asuser` exists to reach
+    /// into a session the runner has none of, so the uid is asked exactly where
+    /// that is the job. A run that is not root is already in the session and
+    /// needs no answer.
+    ///
     /// showup is started after login and stopped before logout, so there is
     /// always a session. A zero would mean something has ended it.
     public static func consoleUID() -> Result<Int, ShowError> {

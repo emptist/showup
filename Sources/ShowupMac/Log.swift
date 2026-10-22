@@ -9,7 +9,7 @@ import ShowupCore
 /// that moves the log around is a setting that will be different on the night
 /// somebody needs to read it.
 public func logPath(now: Date = Date()) -> String {
-    "/var/log/showup\(Int(now.timeIntervalSince1970)).log"
+    Ground.logPath(now: now, directory: Ground.logDirectory)
 }
 
 /// How long an old run's log is kept before the next run deletes it.
@@ -35,36 +35,37 @@ public func prunableLog(_ name: String, isRegularFile: Bool, modified: Date, now
 
 /// What showup did, and when, in a file that survives the terminal.
 ///
-/// The directory is `/var/log`, not `/tmp`, and that is not a style choice.
-/// `showup` runs as root, and `/tmp` is world writable: a user who creates a
-/// file there as a symlink gets a root process to write through it. `/var/log`
-/// is root owned and the file is opened `O_NOFOLLOW`, so there is nothing there
-/// to aim at.
+/// The directory is the run's ground, and the ground is the identity of the
+/// runner: root's is `/var/log`, and a run that is not root writes under its own
+/// `~/Library/Logs/showup`. The two are the same shape - `showup<number>.log` -
+/// so the naming, the retention and the prune are ground blind already.
 ///
 /// Each line is appended with one `write(2)` on a descriptor opened once, rather
 /// than a shell per line: a shell spawn per log line is a process per log line,
 /// and this is the most frequent thing the program does.
 public enum Log {
+    /// The log file this run writes to, on the ground it runs on.
     public static let path = logPath()
 
     private static let descriptor: Int32 = {
         // Readable, not writable: the log is for the person who looks later, and
-        // it is not a file an unprivileged user may alter - it is root's to
-        // write and the directory is root's to name files in.
+        // it is not a file an unprivileged user may alter - it is the runner's to
+        // write and the directory is the runner's to name files in.
         let file = open(path, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o644)
         return file < 0 ? -1 : file
     }()
 
-    /// Whether this run can write its log at all, which without sudo it cannot.
+    /// Whether this run can write its log at all. On root's ground that without
+    /// sudo is not so; on a user run's own ground the question is the run's own.
     public static var isWritable: Bool { descriptor >= 0 }
 
     /// Deletes logs of runs that ended more than a week ago, and says so.
     ///
     /// Best effort, before anything else is written: a directory that cannot be
-    /// read (running without sudo) prunes nothing and stays quiet about it.
+    /// read prunes nothing and stays quiet about it.
     @discardableResult
     public static func pruneOldRuns(now: Date = Date()) -> Int {
-        let directory = "/var/log"
+        let directory = Ground.logDirectory
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory) else {
             return 0
         }

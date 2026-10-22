@@ -41,6 +41,18 @@ public struct Wake: Equatable {
 public enum Command: Equatable {
     case show(Config)
     case showSchedule(Config)
+    /// The night run as the user side of an install performs it: no
+    /// schedule is said out loud, because the schedule lives in the
+    /// contract the renewal reads. The run takes its app, times and ring
+    /// answer from it, and keeps taking them - each moment is served by
+    /// the contract as it stands then, so a changed schedule is picked up
+    /// without a restart.
+    case runFromContract
+    /// The renewal side of the install: re-arms the kernel list as the
+    /// contract at the given directory owes. Exactly one argument - the
+    /// directory the schedule lives in, because the side that runs as root
+    /// is not the side that would know whose home to guess.
+    case renew(directory: String)
     case help
 }
 

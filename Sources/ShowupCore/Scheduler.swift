@@ -1,13 +1,48 @@
 import Foundation
 
 /// Surfaces the app at every configured time, for as long as the program runs.
-public func run(_ config: Config, effects: Effects) {
+///
+/// The schedule a run serves its second moment on need not be the schedule it
+/// was started with: `scheduleRefresh` is asked between moments, and whatever
+/// schedule it hands back is the one the next moment is planned by. A nil
+/// answer keeps the schedule standing. This is how the installed run follows
+/// the contract it was started from without a restart - the schedule lives in
+/// the contract, so a changed schedule changes the run on its next moment,
+/// and the run that never re-reads surfaces a schedule nobody asked for
+/// anymore.
+///
+/// The same refresh is consulted *inside* a wait: the moments the fresh
+/// schedule no longer asks for are abandoned rather than served, and the loop
+/// replans from the machine's own clock with the schedule the contract now
+/// carries. This is the difference between a change that means something and
+/// a change that waits a day: a schedule edited while the run holds for a
+/// moment that is no longer in it must not surface that moment on schedule,
+/// saying one thing while the contract says another.
+public func run(
+    _ config: Config,
+    effects: Effects,
+    scheduleRefresh: (() -> Config?)? = nil
+) {
+    var config = config
     reportIdleWindow(effects)
 
     var instant = effects.now()
     var instantDate = effects.currentDate()
     while true {
-        switch step(config, effects: effects, from: instant, at: instantDate) {
+        if let refresh = scheduleRefresh, let refreshed = refresh() {
+            config = refreshed
+        }
+        // The wait-inside hook: the step asks whether the schedule it is
+        // serving this moment by still stands. It is answered against the
+        // schedule the step started with, whatever else has been adopted in
+        // between, so that a change under its feet says itself exactly once
+        // and keeps saying it until the step ends as `.withdrawn` and the
+        // loop re-plans from the clock with the fresh contract.
+        let rechecked = scheduleRefresh.map { refresh -> () -> Bool in
+            let starting = config
+            return { refresh().map { $0 != starting } ?? false }
+        }
+        switch step(config, effects: effects, from: instant, at: instantDate, scheduleChanged: rechecked) {
         // The payloads are what a test asserts on; the loop needs the wake.
         case .surfaced(let wake, _):
             // Step past the wake that was just handled by its required moment,
@@ -24,6 +59,14 @@ public func run(_ config: Config, effects: Effects) {
             // twice.
             instant = (wake.at.secondsSinceMidnight + 1) % secondsPerDay
             instantDate = effects.currentDate()
+        case .withdrawn:
+            // The schedule changed under the wait: the moment that was being
+            // served is no longer asked for, and the fresh schedule decides
+            // everything next. Re-plan from the machine's own clock - the
+            // moment this attempt was overtaken on is not re-served, because
+            // the schedule that stands now does not name it.
+            instant = effects.now()
+            instantDate = effects.currentDate()
         case .idle:
             return
         }
@@ -38,6 +81,12 @@ public enum Step: Equatable {
     /// has already returned by the time this is built, and it reports by
     /// logging, so there is nothing truthful left to record here.
     case surfaced(wake: Wake, showed: ShowOutcome)
+    /// The schedule changed inside the wait: the moment being served is no
+    /// longer in the schedule, so it was abandoned before it was served. No
+    /// app was brought up, no alarm rang, and the wake that was asked for on
+    /// the run's behalf - a user run never asks - is left to the renewal's
+    /// sweep to take back on its next pass.
+    case withdrawn
     /// There are no times to wait for.
     case idle
 }
@@ -52,8 +101,20 @@ public enum Step: Equatable {
 ///
 /// The reading defaults to now, which is what it is when a caller has nothing
 /// earlier to report.
+///
+/// `scheduleChanged` is asked every ten seconds of the wait. A true answer
+/// ends the attempt as `.withdrawn`: the schedule this moment was planned by
+/// is gone, and serving it anyway would surface an app at a time - and for a
+/// schedule - nobody asked for. Asked during the wait for the wake only,
+/// wherever that wait runs: the step's own first stretch of it, and the
+/// fallback hold a lead-less step walks straight into. The holds that follow
+/// a real wake are not, because by then the machine has woken, the alarm has
+/// rung, and a person may well be at the screen - the app goes up for the
+/// moment it was woken for, and the new schedule is followed from the next
+/// moment.
 public func step(
-    _ config: Config, effects: Effects, from now: Int, at instantDate: Date? = nil
+    _ config: Config, effects: Effects, from now: Int, at instantDate: Date? = nil,
+    scheduleChanged: (() -> Bool)? = nil
 ) -> Step {
     let callerDate = instantDate ?? effects.currentDate()
     guard let (wake, target) = nextWakeAbsolute(config.times, from: now, on: callerDate) else {
@@ -97,7 +158,19 @@ public func step(
         let datetime = pmsetDatetime(now: effects.currentDate(), secondsFromNow: wakeIn)
         effects.log("waking at \(wake.at.rendered) (pmset \(datetime)), in \(describeDelay(wait))")
         if case .failure(let reason) = effects.scheduleWake(wakeIn) {
-            effects.warn("could not schedule wake (did you run with sudo?): \(reason)")
+            // Refused where the wake act belongs to root is a designed
+            // handoff, not a failure: the run says the line once - the error
+            // knows which refusal announced - and carries on, the way the
+            // contract says a wake can be. A refusal root gets, and every
+            // other kind of failure, still deserves the question.
+            switch reason {
+            case .wakeIsNotOurs(let first) where first:
+                effects.log(reason.description)
+            case .wakeIsNotOurs:
+                break
+            default:
+                effects.warn("could not schedule wake (did you run with sudo?): \(reason)")
+            }
         }
     } else {
         effects.log(
@@ -107,7 +180,11 @@ public func step(
     }
 
     let idleBefore = effects.idleSeconds()
-    sleepSeconds(effects, ahead)
+    sleepSeconds(effects, ahead, checking: scheduleChanged)
+    if let scheduleChanged, scheduleChanged() {
+        effects.log("the schedule changed while holding the wake; this moment is not served")
+        return .withdrawn
+    }
     let elapsed = secondsBetween(started, effects.now())
     let idleAfter = effects.idleSeconds()
 
@@ -146,7 +223,10 @@ public func step(
         }
     }
 
-    holdUntilTheTime(effects, until: target)
+    guard holdUntilTheTime(effects, until: target, scheduleChanged: scheduleChanged) else {
+        effects.log("the schedule changed while holding the wake; this moment is not served")
+        return .withdrawn
+    }
     return .surfaced(wake: wake, showed: surface(config.app, effects))
 }
 
@@ -212,20 +292,35 @@ private func waitForTheLogin(_ effects: Effects) -> Bool {
 /// without it, and the window goes up then: late, which is allowed.
 ///
 /// Late is possible; early is not.
-private func holdUntilTheTime(_ effects: Effects, until target: Date) {
+///
+/// `scheduleChanged` is asked every ten seconds of the hold, as much for
+/// receipts as for the schedule itself. It is passed only by the fallback
+/// hold - the one a step walks straight into when the lead ran out before its
+/// wait began - because that hold is still the wait for the wake, just an
+/// already-past part of it. The holds that follow a real wake are not given
+/// the hook: the machine has come up, the alarm has rung or been silenced for
+/// that day, and a person may well be at the screen - the app goes up for the
+/// moment it was woken for, and the fresh schedule is followed from the next
+/// moment. Returns false when the schedule changed under the hold; the
+/// caller decides what that means, and the holds that follow a wake can
+/// never answer it.
+private func holdUntilTheTime(
+    _ effects: Effects, until target: Date, scheduleChanged: (() -> Bool)? = nil
+) -> Bool {
     while true {
-        guard effects.currentDate() < target else { return }
+        guard effects.currentDate() < target else { return true }
 
         let missing = Int(target.timeIntervalSince(effects.currentDate()).rounded(.up))
         effects.log("holding the window for \(missing)s until the required time")
         let before = effects.currentDate()
-        sleepSeconds(effects, missing)
+        sleepSeconds(effects, missing, checking: scheduleChanged)
+        if let scheduleChanged, scheduleChanged() { return false }
         // A clock that does not move must not spin this loop for ever. The
         // window goes up late instead, which is a smaller failure than a
         // process that never returns and a log that never ends.
         guard effects.currentDate() != before else {
             effects.warn("the clock did not move while holding the window; showing now")
-            return
+            return true
         }
     }
 }
@@ -365,12 +460,18 @@ private func surface(_ app: String, _ effects: Effects) -> ShowOutcome {
 /// Sleeps for `seconds` against the wall clock, in steps.
 ///
 /// See `sleepStepSeconds` for why this is not one long sleep.
-func sleepSeconds(_ effects: Effects, _ seconds: Int) {
+///
+/// `checking` is asked after every step, and a true answer ends the whole
+/// wait early: the caller is abandoning what this wait was leading to, and
+/// sleeping further into it would run headlong past the moment that no
+/// longer exists.
+func sleepSeconds(_ effects: Effects, _ seconds: Int, checking: (() -> Bool)? = nil) {
     let target = (effects.now() + seconds) % secondsPerDay
     var budget = seconds
     while budget > 0 {
         guard let step = nextSleepStep(target: target, now: effects.now(), budget: budget) else { return }
         effects.sleep(step)
         budget -= step
+        if let checking, checking() { return }
     }
 }

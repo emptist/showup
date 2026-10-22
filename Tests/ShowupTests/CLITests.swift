@@ -71,6 +71,13 @@ import Testing
         #expect(try parseCLI(["-h"]) == .help)
     }
 
+    /// Nothing said at all is the installed night run: no schedule is said
+    /// out loud, because the schedule lives in the contract. Every other
+    /// shape still has to say its app.
+    @Test func nothingSaidIsTheRunFromTheContract() throws {
+        #expect(try parseCLI([]) == .runFromContract)
+    }
+
     // MARK: Everything it can get wrong
 
     @Test(arguments: [

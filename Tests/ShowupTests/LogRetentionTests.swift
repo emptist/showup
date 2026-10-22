@@ -121,3 +121,29 @@ import Testing
         }
     }
 }
+
+/// The log and lock grounds follow the identity of the runner: root keeps the
+/// ground it always had, and a run that is not root gets ground of its own.
+@Suite struct GroundTests {
+    private let now = Date(timeIntervalSince1970: 1_000_000_000)
+
+    /// Root's ground is the one the binary has always written on, byte for byte.
+    @Test func theRootGroundKeepsTodaysPaths() {
+        #expect(Ground.logPath(now: now, directory: "/var/log") == "/var/log/showup1000000000.log")
+        #expect(Ground.lockPath(directory: "/var/log") == "/var/log/showup.lock")
+    }
+
+    /// A user run's log is one file per run under its own logs directory, and
+    /// its lock under its own support directory.
+    @Test func aUserRunGetsGroundOfItsOwn() {
+        let directory = Ground.userLogDirectory
+        #expect(Ground.logPath(now: now, directory: directory) == directory + "/showup1000000000.log")
+        #expect(Ground.lockPath(directory: Ground.userLockDirectory) == Ground.userLockDirectory + "/showup.lock")
+    }
+
+    /// The two grounds are different grounds, not two names for one.
+    @Test func theGroundsAreNotTheSameGround() {
+        #expect(Ground.userLogDirectory != "/var/log")
+        #expect(Ground.userLockDirectory != "/var/log")
+    }
+}

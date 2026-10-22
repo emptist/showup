@@ -72,15 +72,37 @@ enum Mac {
         return !record.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// `open -a` in the console user's session, which is the one that has a
-    /// desktop to bring a window to.
+    /// The command that brings the app to the front, shaped by the identity of
+    /// the runner.
+    ///
+    /// A run that is not root is already in the session that has a desktop, so
+    /// its `open -a` is its own and nothing is forged. Root has no session, so
+    /// it borrows the console user's with `launchctl asuser`.
+    static func surfaceCommand(asRoot: Bool, uid: String, app: String) -> (String, [String]) {
+        asRoot
+            ? ("/bin/launchctl", ["asuser", uid, "/usr/bin/open", "-a", app])
+            : ("/usr/bin/open", ["-a", app])
+    }
+
+    /// Surfaces the app, by the identity the run already has.
+    ///
+    /// The console user's uid is asked only where it is needed: root's `asuser`
+    /// path, which reaches into the session root has none of. The `isRunning`
+    /// pre-check is not an identity question, it is an app question, and both
+    /// paths want its answer.
     static func showApp(_ app: String) -> ShowOutcome {
         let wasRunning = isRunning(app)
-        switch consoleUID() {
+        let command: Result<(String, [String]), ShowError>
+        if Ground.isRoot {
+            command = consoleUID().map { surfaceCommand(asRoot: true, uid: String($0), app: app) }
+        } else {
+            command = .success(surfaceCommand(asRoot: false, uid: "", app: app))
+        }
+        switch command {
         case .failure(let reason):
             return .failed(reason.description)
-        case .success(let uid):
-            switch Mac.run("/bin/launchctl", ["asuser", String(uid), "/usr/bin/open", "-a", app]) {
+        case .success(let (executable, arguments)):
+            switch Mac.run(executable, arguments) {
             case .failure(let reason):
                 return .failed(reason.description)
             case .success:
