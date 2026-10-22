@@ -303,7 +303,8 @@ private func waitForTheLogin(_ effects: Effects) -> Bool {
 /// moment it was woken for, and the fresh schedule is followed from the next
 /// moment. Returns false when the schedule changed under the hold; the
 /// caller decides what that means, and the holds that follow a wake can
-/// never answer it.
+/// never answer it - which is why the answer is discardable there.
+@discardableResult
 private func holdUntilTheTime(
     _ effects: Effects, until target: Date, scheduleChanged: (() -> Bool)? = nil
 ) -> Bool {

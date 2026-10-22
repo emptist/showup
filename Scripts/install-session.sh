@@ -4,6 +4,9 @@
 # What lands where (run `sudo Scripts/install-session.sh <app> <times>`):
 #   root, here and only here:
 #     - the release build into /usr/local/bin, with its stamp
+#     - any showup already running is stopped, by root, whatever it is:
+#       a predecessor holds the instance lock and can only be stopped
+#       by root if it is one
 #     - /Library/LaunchDaemons/com.showup.renew.plist, and the daemon
 #       started once, so tonight's moments are armed before the Mac sleeps
 #   the user, from the same script, without needing any further password:
@@ -63,13 +66,30 @@ say "installing $CONSOLE_USER's schedule with app $APP at times $TIMES"
 
 # --- root side ---
 
-say "[1/6] copying the release binary and its stamp to /usr/local/bin"
+say "[1/7] copying the release binary and its stamp to /usr/local/bin"
 mkdir -p /usr/local/bin || die_step "cannot create /usr/local/bin"
 install -m 0755 "$BUILD_DIR/showup" /usr/local/bin/showup || die_step "cannot install the binary into /usr/local/bin"
 install -m 0644 "$BUILD_DIR/showup.stamp" /usr/local/bin/showup.stamp || die_step "cannot install the build stamp"
 say "      /usr/local/bin/showup and showup.stamp installed ($(cat /usr/local/bin/showup.stamp))"
 
-say "[2/6] writing the renewal daemon plist"
+say "[2/7] stopping any showup that is already running"
+# A predecessor holds the instance lock, so the agent's first bare run would
+# stop immediately and name it instead of serving the contract. A polite
+# stop lets its own exit handler take its kernel wake back; a stubborn one
+# is killed outright, and tonight's first renewal pass sweeps any wake it
+# leaves behind. This is what makes the sudo session the right place for
+# the act: a legacy root-mode run can only be stopped by root.
+if pgrep -x showup >/dev/null; then
+    pkill -x showup && say "      the running showup was asked to stop"
+    sleep 3
+    pkill -9 -x showup 2>/dev/null && say "      one showup refused to stop and was killed"
+    pgrep -x showup >/dev/null && die_step "a showup process cannot be stopped; kill it by pid: $(pgrep -x showup)"
+    say "      it stopped"
+else
+    say "      none was running"
+fi
+
+say "[3/7] writing the renewal daemon plist"
 mkdir -p "$LOG_DIR" || die_step "cannot create $LOG_DIR (the daemon's log ground)"
 chown "$CONSOLE_USER" "$LOG_DIR" || die_step "cannot give $CONSOLE_USER their log ground"
 cat > "$DAEMON_PLIST" <<EOF || die_step "cannot write $DAEMON_PLIST"
@@ -105,7 +125,7 @@ chown root:wheel "$DAEMON_PLIST" || die_step "cannot give the daemon plist to ro
 chmod 0644 "$DAEMON_PLIST" || die_step "cannot set the daemon plist's permissions"
 say "      $DAEMON_PLIST written: program 'showup renew $SIGNED_DIR', daily at 00:05, telling its story in $LOG_DIR/renew.log"
 
-say "[3/6] starting the renewal daemon once, so tonight's moments are armed now"
+say "[4/7] starting the renewal daemon once, so tonight's moments are armed now"
 if launchctl bootout system/"$DAEMON_LABEL" 2>/dev/null; then
     say "      an older daemon was stopped first"
 fi
@@ -115,11 +135,11 @@ say "      the daemon ran once (see its story in $LOG_DIR/renew.log)"
 
 # --- the user side ---
 
-say "[4/6] seeding the schedule contract (a dry-run, as $CONSOLE_USER, writes nothing but the contract)"
+say "[5/7] seeding the schedule contract (a dry-run, as $CONSOLE_USER, writes nothing but the contract)"
 sudo -u "$CONSOLE_USER" /usr/local/bin/showup -a "$APP" -t "$TIMES" -n \
     || die_step "the contract seeding run failed"
 
-say "[5/6] writing the user agent plist (program: bare 'showup', which serves the contract as it stands)"
+say "[6/7] writing the user agent plist (program: bare 'showup', which serves the contract as it stands)"
 sudo -u "$CONSOLE_USER" mkdir -p "$(dirname "$AGENT_PLIST")" \
     || die_step "cannot create $(dirname "$AGENT_PLIST")"
 cat > /tmp/showup-agent.plist <<EOF || die_step "cannot write the agent plist staging file"
@@ -170,7 +190,7 @@ install -o "$CONSOLE_UID" -g "$CONSOLE_GID" -m 0644 /tmp/showup-agent.plist "$AG
 rm -f /tmp/showup-agent.plist
 say "      $AGENT_PLIST written: bare '/usr/local/bin/showup', at load and at $TIMES"
 
-say "[6/6] starting the user agent"
+say "[7/7] starting the user agent"
 if launchctl bootout gui/"$CONSOLE_UID"/"$AGENT_LABEL" 2>/dev/null; then
     say "      an older agent was stopped first"
 fi
@@ -186,6 +206,7 @@ Install done. One password was asked for, this one's.
   renewal      $DAEMON_PLIST, daily 00:05 and tonight's first pass already run
   night run    $AGENT_PLIST, started once; it stands and serves the contract
   everything   told in $LOG_DIR/
+  stopped      any showup that was already running (so the new run owns the lock)
 
 From here on, changing the schedule is a user act, no password:
   showup -a <app> -t <times>          (or the same with --dry-run)

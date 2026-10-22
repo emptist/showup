@@ -97,7 +97,7 @@ The people-hours after the password are all unprivileged.
 - The Usage block documents the two scheduleless forms (`showup` bare;
   `showup renew <dir>`).
 - The install/occupancy story in *Where the design is going*: what one
-  password buys (the six acts), what happens nightly (a bare run per moment
+  password buys (the seven acts), what happens nightly (a bare run per moment
   via launchd, contract-driven; the start runs keep writing the contract and
   the standing run follows changes without a restart), how to change times
   (any of the usual runs — dry-run or full — no password), how to leave

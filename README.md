@@ -60,26 +60,31 @@ make install-session APP=Safari TIMES=04:00,08:00
 ```
 
 `make` builds the release binary and asks for the password once. The install
-session then does six things, saying each as it goes:
+session then does seven things, saying each as it goes:
 
 1. installs the binary and its build stamp to `/usr/local/bin`;
-2. installs the renewal daemon (`com.showup.renew` in `/Library/LaunchDaemons`),
+2. stops any `showup` that is already running — a predecessor holds the
+   instance lock, which would starve the new run's first start; the polite
+   stop lets the old run take its own kernel wake back on its way out;
+3. installs the renewal daemon (`com.showup.renew` in `/Library/LaunchDaemons`),
    which runs `showup renew` daily at 00:05 — its narration lands in
    `~/Library/Logs/showup/renew.log` on your own ground, made and owned by you;
-3. loads the daemon and runs the first renewal right then, so the password
+4. loads the daemon and runs the first renewal right then, so the password
    pays for tonight's wake immediately;
-4. seeds the schedule contract with a dry-run in your session — the same
+5. seeds the schedule contract with a dry-run in your session — the same
    preview a normal run prints, written to
    `~/Library/Application Support/showup/schedule.txt`;
-5. installs the launch agent (`com.showup` in `~/Library/LaunchAgents`), a
+6. installs the launch agent (`com.showup` in `~/Library/LaunchAgents`), a
    bare `showup` with an interval at each of the chosen times;
-6. loads the agent, which starts the first full run immediately.
+7. loads the agent, which starts the first full run immediately.
 
 It prints a receipt of everything it touched, and the same lines are what
 `README.md` documents. `make uninstall-session` is the same in reverse: one
-password, everything it installed removed, the kernel wakes it armed taken
-back one by one (`pmset schedule cancel`, not `cancelall` — nobody else's
-alarms are touched), and the logs kept for their week.
+password — any `showup` still running is stopped first (a polite stop lets
+it take its own kernel wake back on the way out), everything installed is
+removed, the kernel wakes it armed are taken back one by one (`pmset
+schedule cancel`, not `cancelall` — nobody else's alarms are touched), and
+the logs kept for their week.
 
 ### What to look at afterwards
 

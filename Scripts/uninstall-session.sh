@@ -3,6 +3,7 @@
 #
 # Root side (here and only here):
 #   - the renewal daemon is stopped and its plist removed
+#   - any showup process of any identity is stopped, politely first
 #   - the kernel's own wake list is cleared of showup's one-shots, read
 #     from `pmset -g sched` rather than guessed
 #   - the binary and its stamp are removed
@@ -45,7 +46,7 @@ AGENT_PLIST="$USER_CONTRACT_DIR/Library/LaunchAgents/$AGENT_LABEL.plist"
 
 say "uninstalling showup's install for $CONSOLE_USER"
 
-say "[1/4] stopping the renewal daemon and removing its plist"
+say "[1/5] stopping the renewal daemon and removing its plist"
 if launchctl bootout system/"$DAEMON_LABEL" 2>/dev/null; then
     say "      the daemon was stopped"
 else
@@ -53,7 +54,20 @@ else
 fi
 rm -f "$DAEMON_PLIST" && say "      $DAEMON_PLIST removed"
 
-say "[2/4] taking back the wakes showup armed in the kernel"
+say "[2/5] stopping any showup that is still running"
+# The agent is going out next, but a hand-started run, or one a kill left
+# alive, does not belong to launchd. A polite stop lets its own exit handler
+# take its kernel wake back; the sweep behind this step catches whatever
+# survives.
+if pgrep -x showup >/dev/null; then
+    pkill -x showup && say "      the running showup was asked to stop"
+    sleep 3
+    pkill -9 -x showup 2>/dev/null && say "      one showup refused to stop and was killed"
+else
+    say "      none was running"
+fi
+
+say "[3/5] taking back the wakes showup armed in the kernel"
 SCHED=$(pmset -g sched 2>/dev/null)
 # One-shots read: "[0]  wake at 10/22/2026 18:40:44 by 'owner'". Only the
 # entries under showup's own tag belong to it; everyone else's alarms are
@@ -76,7 +90,7 @@ else
     done
 fi
 
-say "[3/4] stopping the user agent and removing its plist"
+say "[4/5] stopping the user agent and removing its plist"
 if launchctl bootout gui/"$CONSOLE_UID"/"$AGENT_LABEL" 2>/dev/null; then
     say "      the agent was stopped"
 else
@@ -84,7 +98,7 @@ else
 fi
 rm -f "$AGENT_PLIST" && say "      $AGENT_PLIST removed"
 
-say "[4/4] removing the binary, the contract and the lock (the logs and their 7-day rule stay)"
+say "[5/5] removing the binary, the contract and the lock (the logs and their 7-day rule stay)"
 rm -f /usr/local/bin/showup /usr/local/bin/showup.stamp && say "      the installed binary is gone"
 rm -f "$SIGNED_DIR/schedule.txt" "$SIGNED_DIR/showup.lock" /var/db/showup.lock 2>/dev/null
 [ -d "$SIGNED_DIR" ] && rmdir "$SIGNED_DIR" 2>/dev/null
@@ -94,6 +108,7 @@ cat <<EOF
 
 Uninstall done. One password was asked for, this one's.
   the renewal daemon is stopped and gone
+  any showup that was still running was stopped
   the kernel list holds no wake of showup's (check: pmset -g sched)
   the agent is stopped and gone
   the binary is gone
