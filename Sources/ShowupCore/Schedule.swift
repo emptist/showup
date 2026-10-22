@@ -20,8 +20,9 @@ public let ringVolume = 20
 /// hour the required time falls in.
 ///
 /// The scheduler takes the whole lead off the front of the wait, so a wait
-/// shorter than the lead is not woken for at all and the window simply waits for
-/// the time it exists for.
+/// shorter than the lead has no lead left in it — the alarm then goes to the
+/// required moment itself, because failing to reach the moment is not the same
+/// failure as reaching it without the display's lead time. See `Scheduler.step`.
 public func leadFor(hour: Int) -> Int {
     isNight(hour) ? nightLeadSeconds : dayLeadSeconds
 }

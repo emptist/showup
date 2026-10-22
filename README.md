@@ -259,6 +259,13 @@ alarm is slept out, so the window still goes up on the time — a measured run p
 TextEdit in front at 10:35:02 against a 10:35:00 target, two seconds, inside
 one ten second step.
 
+A wake that is *already* inside its lead — a window starting at 04:00 whose
+step began at 03:58:20, say — has no lead left to wake early for. The alarm
+moves to the required moment itself rather than being dropped. The lead is a
+comfort; being there at all is not. This was measured: with no alarm armed, the
+Mac's own idle timer took it down during the wait, nothing in the program could
+bring it back, and a 04:00 window went up at 08:58:30.
+
 The window never goes up **before** the required time, whichever program ran —
 and that is the only thing in this program which must not be early. The wake
 itself is early on purpose: the lead window exists so that the display coming

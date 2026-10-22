@@ -73,24 +73,36 @@ public func step(
     // time, so that the display coming up, the person waking and the password
     // all happen inside the window rather than in the minute the app was
     // supposed to appear.
-    let ahead = max(0, wait - leadFor(hour: wake.at.hour))
+    //
+    // The lead comes off the front, so what is left is how long this step may
+    // sleep before the work has to begin. A wait shorter than the lead leaves
+    // nothing, and the alarm then moves to the required moment itself: the lead
+    // is a comfort the schedule ran out of, reaching the moment is not. This
+    // arming used to be dropped instead, on the reasoning that the machine is
+    // up because it is running this program — which is true now, and not for
+    // the length of the wait, since its idle timer is free to take it down
+    // meanwhile. Measured: a step from 03:58:20 for a 04:00 window armed
+    // nothing, the Mac dozed off inside the hold, and the window went up at
+    // 08:58:30 with no alarm in the program that could have prevented it.
+    let lead = leadFor(hour: wake.at.hour)
+    let ahead = max(0, wait - lead)
+    // What to ask the kernel for: the lead point while it is still ahead of
+    // us, the required moment once the lead is used up. Zero only when the
+    // moment has already arrived, and then there is nothing left to wake for.
+    let wakeIn = ahead > 0 ? ahead : wait
     // The instant the RTC alarm is set for. It settles whether a DarkWake was
     // ours or the machine's own, which the label alone cannot.
-    let requestedAt = (started + ahead) % secondsPerDay
-    if ahead > 0 {
-        let datetime = pmsetDatetime(now: effects.currentDate(), secondsFromNow: ahead)
+    let requestedAt = (started + wakeIn) % secondsPerDay
+    if wakeIn > 0 {
+        let datetime = pmsetDatetime(now: effects.currentDate(), secondsFromNow: wakeIn)
         effects.log("waking at \(wake.at.rendered) (pmset \(datetime)), in \(describeDelay(wait))")
-        if case .failure(let reason) = effects.scheduleWake(ahead) {
+        if case .failure(let reason) = effects.scheduleWake(wakeIn) {
             effects.warn("could not schedule wake (did you run with sudo?): \(reason)")
         }
     } else {
-        // The required time is nearer than the lead, so there is nothing to
-        // wake for: the machine is up, because it is running this program.
-        // Asking the kernel for a wake in the past is a log line nobody can
-        // use, and an alarm armed for the moment it was already at.
         effects.log(
             "waking at \(wake.at.rendered), in \(describeDelay(wait))"
-                + " (the time is nearer than the lead; no wake asked for)"
+                + " (the required time has arrived; no wake asked for)"
         )
     }
 

@@ -856,18 +856,77 @@ import Testing
     /// A wake whose required time is nearer than the lead has nothing to wake
     /// for: the machine is up, because it is running this program. Asking the
     /// kernel for a wake in the past is a log line nobody can use.
-    @Test func aWakeInsideTheLeadAsksForNoWakeAtAll() {
+    /// The regression, and the one the real run needed. A step that begins
+    /// inside the lead has no room left for the lead — but the RTC alarm is
+    /// not there to give the machine room, it is there to make the required
+    /// moment *reachable*. A Mac whose idle timer takes it down mid-hold does
+    /// not come back on its own, and a step that armed nothing left the
+    /// window to whatever else the machine happened to be woken for later.
+    ///
+    /// Measured on this Mac, from a step that began at 03:58:20 for a 04:00
+    /// window with nothing armed: the window went up at 08:58:30.
+    @Test func aWakeInsideTheLeadStillAsksTheKernelForTheMomentItself() {
+        let machine = FakeMachine()
+        machine.setClock(3 * 3_600 + 58 * 60 + 20)  // 03:58:20
+        machine.sleepsDuringWait = false
+
+        // 04:00 is 100 seconds away and the night lead is five minutes, so the
+        // lead no longer fits and the alarm has nowhere earlier to go.
+        _ = step(config(hour: 4), effects: machine.effects, from: 3 * 3_600 + 58 * 60 + 20)
+
+        // Armed anyway, and armed for the required moment itself — which is
+        // still in the future, so this is not TECH-DEBT 11's alarm in the past.
+        // 100 seconds from 03:58:20 is 04:00:00, not the 03:55:00 the lead
+        // would have named.
+        #expect(machine.wakeRequestedIn == [100])
+        #expect(machine.said("(pmset"))
+        #expect(!machine.said("no wake asked for"))
+        #expect(machine.shownApps == ["Safari"])
+        #expect(machine.now == 4 * 3_600)
+    }
+
+    /// What TECH-DEBT 11 was actually about, kept as its own test: the alarm
+    /// must never be set for an instant that has already gone by. Inside the
+    /// lead it moves to the required moment; it does not stay where the lead
+    /// would have put it, because that instant is behind us.
+    @Test func aWakeInsideTheLeadNeverAsksForAMomentAlreadyPast() {
         let machine = FakeMachine()
         machine.setClock(0)
-        machine.sleepsDuringWait = false
 
         // 00:02 is two minutes away, and the night lead is five.
         _ = step(config(hour: 0, minute: 2), effects: machine.effects, from: 0)
 
-        #expect(machine.wakeRequestedIn == [])
-        #expect(machine.said("no wake asked for"))
+        #expect(machine.wakeRequestedIn == [2 * 60])
+        #expect(!machine.said("in the past"))
         #expect(machine.shownApps == ["Safari"])
         #expect(machine.now == 2 * 60)
+    }
+
+    /// The lead is gone, so the alarm sits on the required moment itself —
+    /// and the moment is still ahead, so TECH-DEBT11's alarm in the past is
+    /// not what this asks for. A moment that has *arrived* is tomorrow's by
+    /// `aTimeWhoseMomentIsExactlyNowWaitsTheWholeDay`, so this is the only
+    /// shape a short wait can have.
+    /// The lead is gone, so the alarm sits on the required moment itself. What
+    /// makes this worth a test of its own is that the alarm is the *only* thing
+    /// standing between a doze inside the hold and a window hours late: the
+    /// step sleeps nothing (there is no lead left to sleep off), so it reads
+    /// the machine as awake, skips the rouse, and goes straight into the hold
+    /// — where an idle timer can take the Mac down with nothing armed.
+    @Test func theShortWaitSurvivesTheIdleTimerBecauseTheAlarmIsArmed() {
+        let machine = FakeMachine()
+        machine.setClock(3 * 3_600 + 58 * 60 + 20)  // 03:58:20
+        machine.sleepsDuringWait = false
+        // The idle timer takes the Mac down 74 seconds into the 100 second
+        // hold and the alarm brings it back for 04:00, which is what a real
+        // RTC wake does and what the fake models as a bounded sleep.
+        machine.suspendsDuring(1, for: 74)
+
+        _ = step(config(hour: 4), effects: machine.effects, from: 3 * 3_600 + 58 * 60 + 20)
+
+        #expect(machine.wakeRequestedIn == [100])
+        #expect(machine.shownApps == ["Safari"])
+        #expect(machine.now == 4 * 3_600)
     }
 
     // MARK: Degenerate input

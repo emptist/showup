@@ -193,11 +193,36 @@ so `ahead` clamped to zero and `pmset` was asked for a wake in the past — and
 the loop then served the same 04:00 a second time, because the cursor was left
 on the machine's clock rather than moved past the wake's own moment.
 
-Both are now one thing: a required time nearer than the lead asks for no wake at
-all (the machine is up, because it is running this program), and the loop steps
-past a served wake by its moment, so a rouse that reached nobody spends the
-wake instead of re-serving it. `aWakeInsideTheLeadAsksForNoWakeAtAll` and
-`aRouseThatReachedNobodySpendsTheWake` each fail without their half.
+Both are now one thing: the loop steps past a served wake by its moment, so a
+rouse that reached nobody spends the wake instead of re-serving it, and an alarm
+is never armed for an instant that has gone by.
+`aRouseThatReachedNobodySpendsTheWake` fails without the first half.
+
+**The first fix for the alarm was wrong, and it hid a five-hour failure.** It
+read "the required time is nearer than the lead" as *there is nothing to wake
+for*, and armed nothing at all — on the reasoning that "the machine is up,
+because it is running this program". That premise is false: the machine is up
+*now*, and its own idle timer is free to take it down during the wait, with
+nothing in the program left to bring it back. Reproduced: a step beginning at
+03:58:20 for a 04:00 window armed no alarm, the Mac dozed off inside the hold,
+and the window went up at **08:58:30**.
+
+**What the alarm is for.** Not to give the machine room — the hold does that —
+but to make the required moment *reachable*. So the lead is still taken off the
+front of the wait, and when that leaves nothing the alarm moves to the required
+moment itself, which is still in the future and so is not TECH-DEBT 11's alarm
+in the past. Arming it costs nothing when the machine stays up: the alarm never
+fires. `aWakeInsideTheLeadStillAsksTheKernelForTheMomentItself` and
+`theShortWaitSurvivesTheIdleTimerBecauseTheAlarmIsArmed` fail without it.
+
+**The general lesson, which is the same one item 10 ends on.** The first fix was
+a plausible reading of the log line rather than a question about what the code
+was for, and it was accepted because every test still passed — the existing test
+asserted *no alarm was requested*, which is exactly what the wrong fix produced.
+A green suite pinned the defect as much as the behaviour. The assertion was
+about an absence (nothing armed) where the property that mattered was a presence
+(the moment must be reachable), and only the second one catches a Mac going
+down.
 
 ## Not artificial
 
