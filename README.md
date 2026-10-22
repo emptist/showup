@@ -6,6 +6,8 @@ for it among your windows. If the application is not running yet, it is
 launched for you.
 
 ```sh
+# The shipped binary runs as root today; under the planned redesign this is
+# the same command without `sudo`. See "Where the design is going" below.
 sudo showup -a Safari -t 8:00,12:00,16:00,20:00
 ```
 
@@ -14,7 +16,8 @@ the power-management system to wake the Mac out of sleep, and creating the log
 file under `/var/log`. Everything else is done as your normal user — the sleep
 evidence is read from APIs that answer the same either way, the alarm plays at
 the speaker, and the app is surfaced by `launchctl asuser` into the console
-user's session rather than into root's.
+user's session rather than into root's. (This describes the shipped binary —
+the transit, not the destination; see *Where the design is going* below.)
 
 `showup` works out when the next of your times is, asks the kernel to wake the
 Mac a little before it, and then brings the application to the front. If the
@@ -26,6 +29,41 @@ Start it after you log in and stop it before you log out. It is built for a
 session that is always there behind the login window: when the Mac wakes with
 the screen locked, your session is still alive, the app is launched into it, and
 it is waiting for you the moment you type your password.
+
+## Where the design is going (decided 2026-10-22)
+
+Everything below this section describes how the **installed binary behaves
+today** — its `sudo`, its `/var/log` log, its `launchctl asuser` surfacing.
+None of it has changed, and it is written as the present tense because it is
+still true tonight.
+
+A direction has been decided and planned for the next stretch of work, and
+it changes exactly one thing in kind: **where the password lives.**
+
+- The nightly run stops executing as root. It becomes an ordinary session
+  process — logs under `~/Library/Logs/showup`, lock on ground it owns, and
+  it surfaces the app with a plain `open -a`, with no `asuser`, because
+  there is nobody else's session to borrow. The reason is not aesthetics:
+  most of what the root run does after its password is identity work —
+  proving who is the console user, whose wake is whose kernel entry, which
+  pid holds which lock — and a run in its own skin stops needing any of it.
+- The one privileged act, arming the kernel's wake, moves behind a single
+  password paid **once, at install time**: a root renewal daemon re-arms
+  each night's one-shot wakes from a schedule file that the unprivileged
+  side writes freely, so changing the times later never needs a password
+  either. Old behavior is kept: running it as root (as documented below)
+  keeps working throughout, unchanged, for as long as anyone wants it.
+- The receipts are in `.planning/BRIEF.md` (Apple's own "Must be called as
+  root" documentation for both wake scheduling commands, the one-slot cap
+  and renewal bookkeeping of `pmset repeat`, launchd's documented
+  wake-coalescing semantics, six open-source alarm projects audited — none
+  of which found a user-mode door for the wake itself), and the work order
+  is `.planning/ROADMAP.md` with one executable plan per step.
+
+Sections below that hinge on the root run — the opening `sudo` paragraph,
+the `launchctl asuser` row, *The log*, the design-implications list — carry
+their own pointers now, so lines read out of a meeting cannot mistake the
+transit for the destination.
 
 ## Building
 
@@ -347,7 +385,8 @@ trackpad twitch while nobody is there is not.
 
 The first reading is captured *before* the first ring rather than after, so
 that the wake itself, or a `sudo` password typed earlier, cannot be mistaken
-for the user answering. After that each reading is measured against the one
+for the user answering. (Today's root run; the planned user run has no such
+password — see *Where the design is going*.) After that each reading is measured against the one
 before it, not against that first one. The counter is back at zero the instant
 a key lands and climbs again from there, so a tap sampled a few seconds late
 reads as a small number rather than as a fall — and measured against the
@@ -547,6 +586,17 @@ replaces the 5-minute gap of the test; the mechanism is the same.
    — and putting the window up, which is `show`. The scheduler core (and its
    tests) never call macOS APIs directly.
 
+4. **The root run is the transit, not the destination.** The nightly run
+   currently executes as root, and nearly everything it does past the
+   password is identity work: `launchctl asuser` into the console session,
+   ownership tags on kernel wakes, a lock and logs on root's ground, an
+   `isRunning` check across an identity boundary. The decided redesign
+   (`.planning/BRIEF.md` and `.planning/ROADMAP.md`) moves the run to the
+   plain user and the wake act to an install-time root renewal daemon —
+   retiring that identity layer, not extending it. New work should build on
+   that shape rather than deepen the root-run one; window discipline, sleep
+   forensics, and the hold-to-moment loop are untouched by it.
+
 ## How it works
 
 Surfacing an application is one command that ships with macOS: `open -a <app>`.
@@ -619,7 +669,9 @@ Five things still spawn a process, and each for a stated reason:
   root without one.
 - **`launchctl asuser` + `open -a`** — surfacing an app. `NSWorkspace` and
   `NSRunningApplication` are bound to a window server session, and showup runs
-  as root in none.
+  as root in none. This exists only because the run is root; in the planned
+  user-mode path it is dropped in favor of a plain `open -a` (see *Where the
+  design is going*), and both paths are kept until then.
 - **`lsappinfo info`** — whether an app is already running, for the same reason.
 - **`afplay`** — playing a `.caf` file. `AudioServicesPlaySystemSound` takes a
   `SystemSoundID` rather than a path, which is a different thing.
@@ -648,6 +700,12 @@ checks each one as root and as a user, because showup runs as root and an API
 that only answers in one of the two is not usable here.
 
 ### The log
+
+Today's ground is root's `/var/log`, and this section describes it. Under the
+decided redesign (see *Where the design is going*), a user-mode run's ground
+becomes `~/Library/Logs/showup` with the same one-per-run naming, the same
+`0644`, and the same week rule; the root ground below stays for runs launched
+with sudo. Until that lands, it is exactly this:
 
 `/var/log/showup<timestamp>.log`, and nowhere else. One file per run, named for
 when it started:
