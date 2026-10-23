@@ -516,9 +516,32 @@ running out of value, on the machine's own evidence:
   alarm stops there rather than resuming a stale ring whenever the Mac next
   comes up.
 
+The budget is not run to its last second. The alarm stops ten seconds short of
+the idle window instead, and those seconds are spent still awake to write the
+turn's records — the ring count, the nobody-came-back line, the plan for the
+next moment. A ring running into the machine's own sleep would be cut off
+mid-sentence, and the books for the whole turn would sit unrecorded until the
+Mac happened to come up again. The seconds cost the ring nothing: an alarm
+somebody meant to answer was answered rings earlier.
+
 Both hand back to the loop, which goes on to arm the next wake. Neither exists
 to be a safety belt; without them the loop would sit parked inside a ring it can
 never finish, and tomorrow's wake would never be asked for.
+
+**Why not the Calendar's or Clock's alarms?** Verified against Apple's
+documentation: the alarm actions an app can create are a displayed message, a
+sound, or an email (`EKAlarmType` display/audio/email — "In macOS Mountain
+Lion, you can specify an action to trigger when the alarm fires via the
+`emailAddress`, `soundName`, or `url` property"). The one action that would fit
+showup's job — a procedure alarm, `url`, "The URL to open when the alarm
+triggers" — has been removed for creation: "Starting with OS X 10.9, it is not
+possible to create new procedure alarms or view URLs for existing procedure
+alarms. Trying to save or modify a procedure alarm will result in a save
+error." And EventKit has no wake scheduling at all, so neither half of the
+job — bring the Mac back from sleep at a chosen instant, then put an app in
+front of its user — can be done with Calendar machinery. What remains is what
+showup does: `IOPMSchedulePowerEvent` from the user's sudo ground once, and
+the alarm's own ring.
 
 `afplay` cannot play mp3, so a sound of your own would need to be a wav, aiff,
 caf or m4a rather than an mp3.

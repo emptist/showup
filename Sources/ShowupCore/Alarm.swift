@@ -9,7 +9,8 @@ public struct AlarmOptions: Equatable, Sendable {
     ///
     /// This is the machine's own idle window, measured. `nil` when there is no
     /// deadline to work to, which is not the same as never: the Mac going back
-    /// to sleep ends the alarm too.
+    /// to sleep ends the alarm too. The alarm never rings to the last second of
+    /// the window; see `stopBeforeSleepSeconds`.
     public var budget: Int?
 
     public init(
@@ -39,6 +40,18 @@ public protocol AlarmEffects: Sendable {
 
 public let ringBetweenSeconds = 5
 public let defaultPlayFailures = 40
+
+/// Seconds the alarm stops short of the machine's own idle window.
+///
+/// A wake that has not reached anybody by the end of that window has failed -
+/// but the alarm does not ring through its very last seconds. Those seconds
+/// are spent still awake to write this turn's records, which a ring running
+/// into the machine's own sleep would cut off mid-sentence: the ring count,
+/// the nobody-came-back line, the next moment's plan would all have to wait
+/// for whenever the machine happened to come up again. The seconds are also
+/// worth little: an alarm somebody meant to answer was answered minutes of
+/// ringing earlier, and the window's last bit of it rings at a closed door.
+public let stopBeforeSleepSeconds = 10
 
 /// How many seconds into the alarm a key press counts as the answer from.
 ///
@@ -103,10 +116,15 @@ private func ring(
         }
 
         // The Mac is about to go down again with nobody there, so this wake has
-        // passed and there is nothing left to ring for. Either way the loop gets
-        // back to arming the next wake instead of parking here.
+        // passed and there is nothing left to ring for. The last seconds of the
+        // window are kept for the records, not spent on a ring: see
+        // `stopBeforeSleepSeconds`. Either way the loop gets back to arming the
+        // next wake instead of parking here.
         if !stayedUp { return .failed(rings: rings) }
-        if let budget = options.budget, elapsed >= budget { return .failed(rings: rings) }
+        if let budget = options.budget,
+            elapsed >= budget - stopBeforeSleepSeconds {
+            return .failed(rings: rings)
+        }
 
         failures = played ? 0 : failures
     }

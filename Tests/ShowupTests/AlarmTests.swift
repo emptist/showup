@@ -61,7 +61,7 @@ import Testing
         let alarm = FakeAlarm(readings: [900, 900, 400])
         let budget = AlarmOptions(between: 10, playFailures: 3, budget: 30)
 
-        #expect(alarmRing(budget, alarm) == .failed(rings: 3))
+        #expect(alarmRing(budget, alarm) == .failed(rings: 2))
     }
 
     /// The counter sitting level with the clock is a machine nobody is at,
@@ -71,8 +71,8 @@ import Testing
         let alarm = FakeAlarm(readings: [2, 12, 22, 32, 42])
         let budget = AlarmOptions(between: 10, playFailures: 3, budget: 40)
 
-        #expect(alarmRing(budget, alarm) == .failed(rings: 4))
-        #expect(alarm.sleeps == 4)
+        #expect(alarmRing(budget, alarm) == .failed(rings: 3))
+        #expect(alarm.sleeps == 3)
     }
 
     /// A counter that cannot be read at all is not evidence that anybody is
@@ -120,15 +120,19 @@ import Testing
         #expect(alarm.plays == 1)
     }
 
-    /// A wake is worth what its window is worth. Once the machine is due to
-    /// sleep again with nobody there, the run has failed and there is nothing
-    /// left to ring for.
-    @Test func ringingPastTheIdleWindowConcludesTheWakeHasFailed() {
-        let alarm = FakeAlarm(readings: [900])   // nobody ever touches the keyboard
-        let budget = AlarmOptions(between: 10, playFailures: 3, budget: 100)
+    /// A wake is worth what its window is worth, and its records belong to a
+    /// machine that is still awake: the alarm ends its work short of the
+    /// idle window - here ten seconds short of the last three cycles - so the
+    /// ring count and the nobody-came-back line are written before the
+    /// machine can go down mid-sentence.
+    @Test func nobodyAnsweringEndsTheAlarmShortOfTheIdleWindow() {
+        let alarm = FakeAlarm(readings: [900])
+        let budget = AlarmOptions(between: 10, playFailures: 3, budget: 40)
 
-        #expect(alarmRing(budget, alarm) == .failed(rings: 10))
-        #expect(alarm.sleeps == 10)
+        // 40 - 10: three rings and the books, not a fourth ring exactly
+        // as the machine's own sleep is due.
+        #expect(alarmRing(budget, alarm) == .failed(rings: 3))
+        #expect(alarm.sleeps == 3)
     }
 
     /// No budget means no deadline, not a shorter one.
@@ -152,5 +156,6 @@ import Testing
         #expect(defaultPlayFailures == 40)
         #expect(ringbackTone.hasSuffix("multiway_invitation.caf"))
         #expect(keyAnswerToleranceSeconds == 5)
+        #expect(stopBeforeSleepSeconds == 10)
     }
 }
