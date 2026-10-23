@@ -59,9 +59,9 @@ import Testing
     /// key that old should.
     @Test func aKeyMinutesOldDoesNotStopTheRing() {
         let alarm = FakeAlarm(readings: [900, 900, 400])
-        let budget = AlarmOptions(between: 10, playFailures: 3, budget: 30)
+        let budget = AlarmOptions(between: 10, playFailures: 3, budget: 50)
 
-        #expect(alarmRing(budget, alarm) == .failed(rings: 2))
+        #expect(alarmRing(budget, alarm) == .failed(rings: 3))
     }
 
     /// The counter sitting level with the clock is a machine nobody is at,
@@ -69,10 +69,10 @@ import Testing
     /// and the budget concludes the wake has failed.
     @Test func theCounterKeepingUpWithTheClockMeansNobodyIsThere() {
         let alarm = FakeAlarm(readings: [2, 12, 22, 32, 42])
-        let budget = AlarmOptions(between: 10, playFailures: 3, budget: 40)
+        let budget = AlarmOptions(between: 10, playFailures: 3, budget: 60)
 
-        #expect(alarmRing(budget, alarm) == .failed(rings: 3))
-        #expect(alarm.sleeps == 3)
+        #expect(alarmRing(budget, alarm) == .failed(rings: 4))
+        #expect(alarm.sleeps == 4)
     }
 
     /// A counter that cannot be read at all is not evidence that anybody is
@@ -122,17 +122,17 @@ import Testing
 
     /// A wake is worth what its window is worth, and its records belong to a
     /// machine that is still awake: the alarm ends its work short of the
-    /// idle window - here ten seconds short of the last three cycles - so the
+    /// idle window - here twenty seconds short of the last two cycles - so the
     /// ring count and the nobody-came-back line are written before the
     /// machine can go down mid-sentence.
     @Test func nobodyAnsweringEndsTheAlarmShortOfTheIdleWindow() {
         let alarm = FakeAlarm(readings: [900])
         let budget = AlarmOptions(between: 10, playFailures: 3, budget: 40)
 
-        // 40 - 10: three rings and the books, not a fourth ring exactly
+        // 40 - 20: two rings and the books, not a third exactly
         // as the machine's own sleep is due.
-        #expect(alarmRing(budget, alarm) == .failed(rings: 3))
-        #expect(alarm.sleeps == 3)
+        #expect(alarmRing(budget, alarm) == .failed(rings: 2))
+        #expect(alarm.sleeps == 2)
     }
 
     /// No budget means no deadline, not a shorter one.
@@ -156,6 +156,6 @@ import Testing
         #expect(defaultPlayFailures == 40)
         #expect(ringbackTone.hasSuffix("multiway_invitation.caf"))
         #expect(keyAnswerToleranceSeconds == 5)
-        #expect(stopBeforeSleepSeconds == 10)
+        #expect(stopBeforeSleepSeconds == 20)
     }
 }

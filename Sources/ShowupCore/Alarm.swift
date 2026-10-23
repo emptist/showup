@@ -47,11 +47,11 @@ public let defaultPlayFailures = 40
 /// but the alarm does not ring through its very last seconds. Those seconds
 /// are spent still awake to write this turn's records, which a ring running
 /// into the machine's own sleep would cut off mid-sentence: the ring count,
-/// the nobody-came-back line, the next moment's plan would all have to wait
-/// for whenever the machine happened to come up again. The seconds are also
-/// worth little: an alarm somebody meant to answer was answered minutes of
-/// ringing earlier, and the window's last bit of it rings at a closed door.
-public let stopBeforeSleepSeconds = 10
+/// the nobody-came-back line, the plan for the next moment, and the loop's
+/// own `pmset` calls, a second or so each on a busy machine. The seconds are
+/// worth little else: an alarm somebody meant to answer was answered rings
+/// earlier, and the window's last bit of it rings at a closed door.
+public let stopBeforeSleepSeconds = 20
 
 /// How many seconds into the alarm a key press counts as the answer from.
 ///

@@ -516,10 +516,11 @@ running out of value, on the machine's own evidence:
   alarm stops there rather than resuming a stale ring whenever the Mac next
   comes up.
 
-The budget is not run to its last second. The alarm stops ten seconds short of
-the idle window instead, and those seconds are spent still awake to write the
-turn's records — the ring count, the nobody-came-back line, the plan for the
-next moment. A ring running into the machine's own sleep would be cut off
+The budget is not run to its last second. The alarm stops twenty seconds short
+of the idle window instead, and those seconds are spent still awake to write
+the turn's records — the ring count, the nobody-came-back line, the plan for
+the next moment, and the loop's own `pmset` calls, a second or so each on a
+busy machine. A ring running into the machine's own sleep would be cut off
 mid-sentence, and the books for the whole turn would sit unrecorded until the
 Mac happened to come up again. The seconds cost the ring nothing: an alarm
 somebody meant to answer was answered rings earlier.
