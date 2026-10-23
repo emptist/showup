@@ -161,7 +161,7 @@ both.
 ## Usage
 
 ```text
-showup -a <app> -t <times> [-n] [-q]
+showup -a <app> -t <times> [-n]
 showup                                 # serve the schedule the contract carries
 showup renew <contract-directory>
 
@@ -170,7 +170,6 @@ showup renew <contract-directory>
                         8:00,12:00,16:00,20:00,24:00. A bare hour such as
                         8 means 8:00.
   -n, --dry-run         Print the next few wake times and exit.
-  -q, --no-ring         Never make a sound.
   -h, --help            Show the full message.
 ```
 
@@ -182,9 +181,13 @@ place is refused with the line that says where one is written from. `renew`
 is the renewal side's act and belongs to root; see *Where the design is
 going*.
 
-`--no-ring` is worth understanding before you use it. By default `showup`
-only ever rings when it had to wake a sleeping Mac — never when the machine was
-already up, where you are assumed to be present and looking.
+There used to be a `--no-ring`. It is gone, on purpose: a wake exists because
+the person is absent, and the ring is the only voice the program has — a wake
+without it would bring a silent Mac back at 7:58, fetch nobody, and leave a
+window with no user to perform on. When `showup` rings is still worth
+understanding: it only ever rings when it had to wake a sleeping Mac — never
+when the machine was already up, where you are assumed to be present and
+looking.
 
 Both `--flag value` and `--flag=value` are accepted, repeated `-t` flags are
 combined, and times are sorted and deduplicated.
@@ -207,7 +210,6 @@ showup -a Safari -t "8:00, 12:00, 16:00"  # right, quoted as one argument
 showup --app="Slack" --times="9,17"   # 09:00 and 17:00 every day
 showup -a Mail -t 24:00               # midnight
 showup -a Mail -t 9:00 --dry-run      # show the plan without waiting
-showup -a Mail -t 9:00 --no-ring      # never make a sound
 ```
 
 ## The two programs inside showup
@@ -373,8 +375,15 @@ done inside that window:
 
 | Wake falls at | Lead | Why |
 | --- | --- | --- |
-| 07:00 – 21:59 | 1 minute | The machine has usually been up for hours, and whoever owns it is at it |
+| 07:00 – 21:59 | 2 minutes | The machine has usually been up for hours, and whoever owns it is at it |
 | 22:00 – 06:59 | 5 minutes | The machine is likely asleep, and a person has to be woken and type a password |
+
+The ring belongs to this window, not to the required minute. Whatever opens it
+— the wake the renewal armed at the window's mouth, or a lid opened early —
+ends the wait, and the alarm starts ringing there: the whole point of the lead
+is that the ring happens *before* the required time, so a person in bed is
+fetched in time to answer it. When the ringing began is in the log for every
+wake ("ringing until a hand reaches the keyboard"), followed by how it ended.
 
 On a machine that never went down, whatever is left of the window after the
 alarm is slept out, so the window still goes up on the time — a measured run put
@@ -474,8 +483,8 @@ recently at the keyboard, which is the case that matters most.
 
 Whether a key has been pressed at all is read from `CGEventSource`. A locked
 screen counts as idle, because it produces no key presses either — and the
-password being typed at the login window is itself the answer. `--no-ring` turns
-the sound off completely.
+password being typed at the login window is itself the answer. There is no way
+to turn the sound off: an absent owner has no other call to answer.
 
 The speaker is raised before the alarm plays, and only upward: a Mac left
 quiet overnight otherwise rings into silence, and the volume somebody chose is

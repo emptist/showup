@@ -85,7 +85,7 @@ import Testing
             TimeOfDay(hour: 8, minute: 0), TimeOfDay(hour: 12, minute: 0),
             TimeOfDay(hour: 16, minute: 0), TimeOfDay(hour: 20, minute: 0),
         ]
-        let config = Config(app: "Binance", times: times, ring: true, dryRun: false)
+        let config = Config(app: "Binance", times: times, dryRun: false)
         // Every wake: the Mac is asleep, the kernel will not say, nothing is
         // rung for, and the machine spends part of the wait down.
         machine.sleepsDuringWait = true
@@ -140,7 +140,7 @@ import Testing
         let machine = FakeMachine()
         machine.sleepsDuringWait = false
         let times = [TimeOfDay(hour: 4, minute: 0), TimeOfDay(hour: 8, minute: 0)]
-        let config = Config(app: "Safari", times: times, ring: true, dryRun: false)
+        let config = Config(app: "Safari", times: times, dryRun: false)
 
         var cursor = 3 * 3_600
         var landed: [Int] = []
@@ -157,7 +157,6 @@ import Testing
         Config(
             app: "Binance",
             times: [TimeOfDay(hour: hour, minute: 0)],
-            ring: true,
             dryRun: false
         )
     }

@@ -15,12 +15,15 @@ import Foundation
 ///
 ///     app Finder
 ///     times 04:00,08:00
-///     ring yes
 ///
 /// Anything else is an error, never a warning: the renewal refuses to guess,
 /// because a guessed schedule is a Mac that wakes for the wrong reasons. An
 /// app name with spaces survives as one value, because only the first space
-/// separates a field from its value.
+/// separates a field from its value. One legacy line is the exception: a
+/// contract from before the ring became the work carries a `ring yes|no`
+/// line. It is read and dropped. The option it stood for no longer exists -
+/// the wake either rings the person back or there is no fetch at all - and
+/// the next write of the contract leaves the line out.
 public struct ScheduleContract: Equatable {
     public static let fileName = "schedule.txt"
 
@@ -29,12 +32,10 @@ public struct ScheduleContract: Equatable {
     /// `times`.
     public var app: String
     public var times: [TimeOfDay]
-    public var ring: Bool
 
-    public init(app: String, times: [TimeOfDay], ring: Bool) {
+    public init(app: String, times: [TimeOfDay]) {
         self.app = app
         self.times = times
-        self.ring = ring
     }
 
     /// What a wrong contract says about itself: always its field, by name.
@@ -49,7 +50,7 @@ public struct ScheduleContract: Equatable {
             case .unnamed(let line):
                 "a line in the contract owns no field: \"\(line)\""
             case .missingField(name: let name):
-                "the contract has no \(name) line, and all three are the schedule"
+                "the contract has no \(name) line, and both are the schedule"
             case .repeatedField(name: let name):
                 "the contract says \(name) twice, and a schedule answers each field once"
             case .badValue(field: let field, value: let value):
@@ -58,11 +59,10 @@ public struct ScheduleContract: Equatable {
         }
     }
 
-    /// The contract as the file holds it: three lines, in this order.
+    /// The contract as the file holds it: two lines, in this order.
     public func render() -> String {
         let times = self.times.map { $0.rendered }.joined(separator: ",")
-        let ring = self.ring ? "yes" : "no"
-        return "app \(app)\ntimes \(times)\nring \(ring)\n"
+        return "app \(app)\ntimes \(times)\n"
     }
 
     /// Reads a contract back from the file's text.
@@ -73,7 +73,6 @@ public struct ScheduleContract: Equatable {
     public static func read(_ text: String) throws -> ScheduleContract {
         var app: String?
         var times: [TimeOfDay]?
-        var ring: Bool?
 
         for rawLine in text.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
             let line = String(rawLine)
@@ -95,11 +94,10 @@ public struct ScheduleContract: Equatable {
                     throw ReaderError.badValue(field: "times", value: value)
                 }
             case "ring":
-                guard ring == nil else { throw ReaderError.repeatedField(name: "ring") }
-                switch value {
-                case "yes": ring = true
-                case "no": ring = false
-                default:
+                // The line an older contract wrote for an option that no
+                // longer exists. A `yes` or `no` is history, not a schedule;
+                // anything else is still a contract that names what it holds.
+                guard value == "yes" || value == "no" else {
                     throw ReaderError.badValue(field: "ring", value: value)
                 }
             default:
@@ -109,7 +107,6 @@ public struct ScheduleContract: Equatable {
 
         guard let app else { throw ReaderError.missingField(name: "app") }
         guard let times else { throw ReaderError.missingField(name: "times") }
-        guard let ring else { throw ReaderError.missingField(name: "ring") }
-        return ScheduleContract(app: app, times: normalise(times), ring: ring)
+        return ScheduleContract(app: app, times: normalise(times))
     }
 }

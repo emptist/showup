@@ -20,6 +20,7 @@ extension Effects {
             powerSettings: { Mac.configuredPowerSettings },
             wakeKind: { Mac.currentWakeKind(requestedAt: $0) },
             powerCycle: { PowerNotifications.shared?.takeCycle() },
+            wakeArrived: { PowerNotifications.shared?.hasCompletedWake() ?? false },
             loginFinished: { Mac.loginFinished() },
             log: { Log.write($0) },
             warn: { Log.write("WARNING \($0)", to: .standardError) }

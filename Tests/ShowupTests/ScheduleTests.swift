@@ -236,8 +236,8 @@ import Testing
 // MARK: - The lead window
 
 @Suite struct LeadTests {
-    @Test(arguments: [(9, 60), (16, 60), (21, 60), (22, 300), (2, 300), (7, 60), (0, 300)])
-    func givesAMorningAMinuteAndAnEveningFive(hour: Int, expected: Int) {
+    @Test(arguments: [(9, 120), (16, 120), (21, 120), (22, 300), (2, 300), (7, 120), (0, 300)])
+    func givesTheDayTwoMinutesAndAnEveningFive(hour: Int, expected: Int) {
         #expect(leadFor(hour: hour) == expected)
     }
 }

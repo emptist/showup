@@ -3,14 +3,15 @@ import Testing
 
 /// The scheduler loop, driven by a fake clock and a fake Mac.
 ///
-/// This is where the two programs diverge, and the divergence used to be
-/// untested: `-q` was parsed, tested at the parser, and then never read.
+/// The suite doc that used to sit here said the two programs diverged on
+/// `-q`, which was parsed, tested at the parser, and then never read. That
+/// flag is gone now, and with it the divergence: a wake exists because the
+/// person is absent, and the ring is the only voice the program has.
 @Suite struct SchedulerTests {
-    func config(hour: Int, minute: Int = 0, ring: Bool = true, app: String = "Safari") -> Config {
+    func config(hour: Int, minute: Int = 0, app: String = "Safari") -> Config {
         Config(
             app: app,
             times: [TimeOfDay(hour: hour, minute: minute)],
-            ring: ring,
             dryRun: false
         )
     }
@@ -46,22 +47,6 @@ import Testing
         #expect(machine.shownApps == ["Safari"])
     }
 
-    /// The regression: `--no-ring` was parsed and tested at the parser and then
-    /// thrown away, so the alarm rang whatever the user asked for.
-    @Test func noRingNeverRings() {
-        let machine = FakeMachine()
-        machine.setClock(0)
-        machine.setIdleCounter(300)
-        machine.sleepsDuringWait = true
-
-        _ = step(config(hour: 9, ring: false), effects: machine.effects, from: 0)
-
-        #expect(machine.alarmCount == 0)
-        #expect(machine.said("--no-ring was given, staying quiet"))
-        // The app is still surfaced. -q is about the sound, not the surfacing.
-        #expect(machine.shownApps == ["Safari"])
-    }
-
     /// An alarm nobody can hear is the worst failure this program has.
     @Test func aMutedSpeakerIsWarnedAboutBeforeRinging() {
         let machine = FakeMachine()
@@ -73,23 +58,6 @@ import Testing
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
         #expect(machine.didWarn("you will not hear it"))
-    }
-
-    /// The warning is about an alarm nobody can hear, so it belongs where there
-    /// is an alarm. `--no-ring` plays nothing at all, and a speaker that is too
-    /// quiet for a sound that never comes is not a failure this program has.
-    @Test func noRingDoesNotWarnAboutASpeakerItWillNotUse() {
-        let machine = FakeMachine()
-        machine.setClock(0)
-        machine.setIdleCounter(300)
-        machine.sleepsDuringWait = true
-        machine.volume = 13  // below quietVolume, and irrelevant
-
-        _ = step(config(hour: 9, ring: false), effects: machine.effects, from: 0)
-
-        #expect(!machine.didWarn("you will not hear it"))
-        #expect(machine.alarmCount == 0)
-        #expect(machine.shownApps == ["Safari"])
     }
 
     /// A speaker quieter than the ring volume is raised before the alarm
@@ -120,21 +88,6 @@ import Testing
         #expect(machine.volumeWasSetTo == [])
     }
 
-    /// There is no alarm, so there is nothing to be heard and nothing to raise.
-    @Test func noRingNeverTouchesTheSpeaker() {
-        let machine = FakeMachine()
-        machine.setClock(0)
-        machine.setIdleCounter(300)
-        machine.sleepsDuringWait = true
-        machine.volume = 0
-
-        _ = step(config(hour: 9, ring: false), effects: machine.effects, from: 0)
-
-        #expect(machine.volumeWasSetTo == [])
-        #expect(!machine.didWarn("you will not hear it"))
-        #expect(machine.alarmCount == 0)
-    }
-
     @Test func aLoudEnoughSpeakerSaysNothing() {
         let machine = FakeMachine()
         machine.setClock(0)
@@ -155,7 +108,7 @@ import Testing
         
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
-        // 09:00 minus a one minute daytime lead.
+        // 09:00 minus the daytime lead: the mouth of its lead window.
         #expect(machine.wakeRequestedIn == [9 * 3_600 - dayLeadSeconds])
     }
 
@@ -246,7 +199,7 @@ import Testing
         machine.powerSettings = PowerSettings(
             source: .ac, displaySleepMinutes: 20, systemSleepMinutes: 25, powerNap: true
         )
-        let empty = Config(app: "Safari", times: [], ring: true, dryRun: false)
+        let empty = Config(app: "Safari", times: [], dryRun: false)
 
         run(empty, effects: machine.effects)  // returns at once: there are no times
 
@@ -274,15 +227,15 @@ import Testing
             if machine.now >= 20 * 3_600 && !machine.shownApps.isEmpty {
                 // The changed schedule's own moment has been served; nobody
                 // is owed anything after it, and the run is done.
-                return Config(app: "Safari", times: [], ring: true, dryRun: false)
+                return Config(app: "Safari", times: [], dryRun: false)
             }
             return asks <= 5
                 ? nil  // the word the run stood up with still stands
-                : Config(app: "Safari", times: [eight], ring: true, dryRun: false)
+                : Config(app: "Safari", times: [eight], dryRun: false)
         }
 
         run(
-            Config(app: "Safari", times: [nine], ring: true, dryRun: false),
+            Config(app: "Safari", times: [nine], dryRun: false),
             effects: machine.effects,
             scheduleRefresh: refresh
         )
@@ -373,6 +326,46 @@ import Testing
     }
 
     // MARK: Surfacing, and who is there to see it
+
+    /// The ring begins at the wake. The mouth the kernel was asked for opens
+    /// the lead window, the wait's leftover budget has nothing to say about
+    /// it, and the receipt of the start is in the log - a real night could
+    /// say when 120 rings ended and nothing about when the first one began.
+    @Test func theRingBeginsAtTheMouthReceiptedBeforeTheHold() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.alarmTakesSeconds = 30
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        let rang = machine.logLines.firstIndex { $0.contains("ringing until a hand reaches the keyboard") }
+        let held = machine.logLines.firstIndex { $0.contains("holding the window") }
+        #expect(rang != nil && held != nil && rang! < held!)
+        #expect(machine.now == 9 * 3_600)
+    }
+
+    /// A wake that lands before its mouth is the same window opening. The
+    /// wait ends for it after one step rather than walking the night out, so
+    /// the evidence is taken while the machine is genuinely, recently asleep
+    /// and the alarm spends its window on a person who might still arrive.
+    @Test func theWaitEndsWhenTheMachineWakesBeforeItsMouth() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.wakeStanding = true
+        machine.suspendsDuring(1, for: 2_700)  // down ~45 minutes, then a lid
+        machine.alarmTakesSeconds = 30
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        #expect(machine.sleptFor.first == 10)  // one step, and the wake ended it
+        #expect(machine.said("ringing until a hand reaches the keyboard"))
+        #expect(machine.now == 9 * 3_600)
+    }
+
 
     /// Measured: launching the app into the session at the target time, while
     /// the screen was still locked, left it nowhere. So the app goes up when
@@ -492,21 +485,6 @@ import Testing
         #expect(machine.shownApps == ["Safari"])
     }
 
-    /// `--no-ring` on a sleeping machine has no sound to hold, but the window
-    /// still does not go up before the time it exists for.
-    @Test func noRingOnASleepingMachineStillWaitsForTheTime() {
-        let machine = FakeMachine()
-        machine.setClock(0)
-        machine.setIdleCounter(300)
-        machine.sleepsDuringWait = true
-
-        _ = step(config(hour: 9, ring: false), effects: machine.effects, from: 0)
-
-        #expect(machine.alarmCount == 0)
-        #expect(machine.shownApps == ["Safari"])
-        #expect(machine.now == 9 * 3_600)
-    }
-
     /// The window waits for the required time even when the wake came early
     /// and the machine was up. A real run on this very Mac put the app up at
     /// 21:59:00 four times out of four against 22:00 requirements, because
@@ -621,7 +599,7 @@ import Testing
         var served: [Int] = []
         for _ in 0..<2 {
             _ = step(
-                Config(app: "Safari", times: times, ring: true, dryRun: false),
+                Config(app: "Safari", times: times, dryRun: false),
                 effects: machine.effects,
                 from: instant
             )
@@ -721,7 +699,7 @@ import Testing
         let times = [TimeOfDay(hour: 0, minute: 20), TimeOfDay(hour: 0, minute: 40)]
 
         guard case .surfaced(let wake, _) = step(
-            Config(app: "Safari", times: times, ring: true, dryRun: false),
+            Config(app: "Safari", times: times, dryRun: false),
             effects: machine.effects,
             from: 0
         ) else {
@@ -745,7 +723,7 @@ import Testing
         let morning = Config(
             app: "Safari",
             times: [TimeOfDay(hour: 9, minute: 0), TimeOfDay(hour: 13, minute: 0)],
-            ring: true, dryRun: false
+            dryRun: false
         )
 
         var instant = 0
@@ -881,8 +859,8 @@ import Testing
 
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
-        // 09:00 minus a one minute lead is the instant the kernel was asked for.
-        #expect(machine.requestedAt == 8 * 3_600 + 59 * 60)
+        // 09:00 minus the daytime lead is the instant the kernel was asked for.
+        #expect(machine.requestedAt == 8 * 3_600 + 58 * 60)
     }
 
     // MARK: A clock that moves under the program's feet
@@ -1072,7 +1050,7 @@ import Testing
 
     @Test func noTimesStopsTheLoop() {
         let machine = FakeMachine()
-        let config = Config(app: "Safari", times: [], ring: true, dryRun: false)
+        let config = Config(app: "Safari", times: [], dryRun: false)
 
         #expect(step(config, effects: machine.effects, from: 0) == .idle)
         #expect(machine.said("no times to wait for, stopping"))

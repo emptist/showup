@@ -55,7 +55,7 @@ enum Showup {
         do {
             let contract = try readContract(at: path)
             bootTheNight(
-                Config(app: contract.app, times: contract.times, ring: contract.ring, dryRun: false)
+                Config(app: contract.app, times: contract.times, dryRun: false)
             )
         } catch let error as CocoaError where error.code == CocoaError.Code.fileReadNoSuchFile {
             FileHandle.standardError.write(Data(
@@ -96,7 +96,7 @@ enum Showup {
                 lastContractNote = nil
                 Log.write("the schedule contract reads again")
             }
-            return Config(app: contract.app, times: contract.times, ring: contract.ring, dryRun: false)
+            return Config(app: contract.app, times: contract.times, dryRun: false)
         } catch let error as CocoaError where error.code == CocoaError.Code.fileReadNoSuchFile {
             noteContractOnce("the schedule contract is gone from \(path); keeping the standing schedule")
             return nil
@@ -192,7 +192,7 @@ enum Showup {
         Ground.ensureDirectories()
         let path = Ground.userLockDirectory + "/" + ScheduleContract.fileName
         do {
-            try ScheduleContract(app: config.app, times: config.times, ring: config.ring)
+            try ScheduleContract(app: config.app, times: config.times)
                 .render()
                 .write(toFile: path, atomically: true, encoding: .utf8)
         } catch {
@@ -328,7 +328,7 @@ enum Showup {
             "showup - bring a macOS app to the foreground at times you choose",
             "",
             "Usage:",
-            "  showup -a <app> -t <times> [-n] [-q]",
+            "  showup -a <app> -t <times> [-n]",
             "  showup                         # the installed run: serves the",
             "                                 # schedule contract as it stands",
             "  showup renew <contract-directory>",
@@ -339,12 +339,6 @@ enum Showup {
             "                        8:00,12:00,16:00,20:00,24:00. A bare hour such",
             "                        as 8 means 8:00.",
             "  -n, --dry-run         Print the next few wake times and exit.",
-            "  -q, --no-ring         Never make a sound. By default showup rings",
-            "                        like an incoming FaceTime call, repeating every",
-            "                        five seconds until you press a key, and only",
-            "                        when it had to wake the Mac from sleep. Use this",
-            "                        if you would rather it only ever brought the",
-            "                        window forward silently.",
             "  -h, --help            Show this message.",
             "",
             "Both --flag value and --flag=value forms are accepted. A time that has",

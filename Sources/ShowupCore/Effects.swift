@@ -32,6 +32,13 @@ public struct Effects: Sendable {
     public var wakeKind: @Sendable (Int?) -> WakeKind
     /// What the kernel announced, or nil when the kernel would not say.
     public var powerCycle: @Sendable () -> PowerCycle?
+    /// Whether the kernel has announced a completed wake since the last look,
+    /// asked without taking anything: the kernel's own account above is left
+    /// standing for the caller who owns it. The long wait asks this so it can
+    /// end the moment the machine comes back - the wake is the thing the wait
+    /// exists to receive, and sleeping on through an open window rings at the
+    /// required time instead of inside it.
+    public var wakeArrived: @Sendable () -> Bool
     /// Whether the login has finished: nobody is sitting in front of a login
     /// window, waiting to type a password.
     public var loginFinished: @Sendable () -> Bool
@@ -51,6 +58,7 @@ public struct Effects: Sendable {
         powerSettings: @escaping @Sendable () -> PowerSettings?,
         wakeKind: @escaping @Sendable (Int?) -> WakeKind,
         powerCycle: @escaping @Sendable () -> PowerCycle?,
+        wakeArrived: @escaping @Sendable () -> Bool,
         loginFinished: @escaping @Sendable () -> Bool,
         log: @escaping @Sendable (String) -> Void,
         warn: @escaping @Sendable (String) -> Void
@@ -67,6 +75,7 @@ public struct Effects: Sendable {
         self.powerSettings = powerSettings
         self.wakeKind = wakeKind
         self.powerCycle = powerCycle
+        self.wakeArrived = wakeArrived
         self.loginFinished = loginFinished
         self.log = log
         self.warn = warn

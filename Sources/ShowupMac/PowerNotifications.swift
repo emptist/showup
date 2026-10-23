@@ -98,6 +98,14 @@ public final class PowerNotifications: @unchecked Sendable {
         }
     }
 
+    /// Whether a completed wake has been announced since the last take, asked
+    /// without taking: the long wait watches for the wake, and the rouse still
+    /// wants the full account afterwards - a peek that cleared the record
+    /// would spend the very answer the ring is decided from.
+    public func hasCompletedWake() -> Bool {
+        lock.withLock { cycle.hasPoweredOn }
+    }
+
     /// What has been announced since this was last taken, clearing the flags so
     /// the next cycle starts from nothing.
     public func takeCycle() -> PowerCycle {

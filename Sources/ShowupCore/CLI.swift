@@ -15,7 +15,6 @@ public func parseCLI(_ arguments: [String]) throws(ShowError) -> Command {
 
     var app: String?
     var times: [TimeOfDay] = []
-    var ring = true
     var dryRun = false
     var index = arguments.startIndex
 
@@ -28,8 +27,6 @@ public func parseCLI(_ arguments: [String]) throws(ShowError) -> Command {
             return .help
         case "-n", "--dry-run":
             dryRun = true
-        case "-q", "--no-ring":
-            ring = false
         case "-a", "--app":
             guard index < arguments.endIndex else { throw ShowError.missingValue(argument) }
             app = arguments[index].trimmed()
@@ -54,7 +51,7 @@ public func parseCLI(_ arguments: [String]) throws(ShowError) -> Command {
     guard !app.isEmpty else { throw ShowError.emptyApp }
     guard !times.isEmpty else { throw ShowError.noTimesGiven }
 
-    let config = Config(app: app, times: normalise(times), ring: ring, dryRun: dryRun)
+    let config = Config(app: app, times: normalise(times), dryRun: dryRun)
     return dryRun ? .showSchedule(config) : .show(config)
 }
 

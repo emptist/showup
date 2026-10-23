@@ -107,6 +107,10 @@ final class FakeMachine: @unchecked Sendable {
     var alarmOutcome: AlarmOutcome = .rung(rings: 3)
     private(set) var lastBudget: Int?
     var powerCycle: PowerCycle? = PowerCycle(willSleep: true, hasPoweredOn: true)
+    /// The kernel has announced a completed wake since the last look. A test
+    /// that means the wake to land inside the long wait - the way the nightly
+    /// arm's mouth does - says so here, and the wait is expected to end for it.
+    var wakeStanding = false
     /// Whether the login has finished. A machine that was asleep and woke to a
     /// login window has not finished it until the password is typed.
     var loginIsFinished = true
@@ -155,6 +159,7 @@ final class FakeMachine: @unchecked Sendable {
             powerSettings: { [self] in self.powerSettings },
             wakeKind: { [self] in self.recordWakeKind($0) },
             powerCycle: { [self] in self.powerCycle },
+            wakeArrived: { [self] in self.wakeStanding },
             loginFinished: { [self] in self.readLoginState() },
             log: { [self] in self.logLines.append($0) },
             warn: { [self] in self.warnings.append($0) }

@@ -59,13 +59,11 @@ public enum Command: Equatable {
 public struct Config: Equatable {
     public var app: String
     public var times: [TimeOfDay]
-    public var ring: Bool
     public var dryRun: Bool
 
-    public init(app: String, times: [TimeOfDay], ring: Bool, dryRun: Bool) {
+    public init(app: String, times: [TimeOfDay], dryRun: Bool) {
         self.app = app
         self.times = times
-        self.ring = ring
         self.dryRun = dryRun
     }
 }

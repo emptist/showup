@@ -180,7 +180,17 @@ public func step(
     }
 
     let idleBefore = effects.idleSeconds()
-    sleepSeconds(effects, ahead, checking: scheduleChanged)
+    // The wait ends at the wake, not at the budget: the mouth the kernel was
+    // asked for may arrive, and so may any wake before it - a lid opened, a
+    // person home early. Both are the window opening, and the work belongs
+    // to the window. Measured on a real night: the ring began a minute into
+    // the window instead of at its mouth, and the first ring was never
+    // receipted at all.
+    sleepSeconds(
+        effects, ahead,
+        checking: scheduleChanged,
+        waking: { effects.wakeArrived() }
+    )
     if let scheduleChanged, scheduleChanged() {
         effects.log("the schedule changed while holding the wake; this moment is not served")
         return .withdrawn
@@ -200,7 +210,7 @@ public func step(
         // survive the screen coming back. So the alarm is not a courtesy before
         // the work; it is the thing that tells us there is somebody there, and
         // the app goes up the moment there is.
-        switch rouse(config, effects, requestedAt: requestedAt) {
+        switch rouse(effects, requestedAt: requestedAt) {
         case .answered:
             // Somebody is there. The key press that stopped the alarm may have
             // been the first letter of a password, so the login is waited out
@@ -345,9 +355,9 @@ private enum Rouse {
     /// to.
     case nobodyCame
     /// No alarm was possible or wanted: a DarkWake, a wake that did not
-    /// complete, or `--no-ring`. Phase one still happens - the app is surfaced
-    /// on the time, because a quiet alarm says nothing about whether somebody
-    /// is there.
+    /// complete, or one the speaker could not deliver. Phase one still
+    /// happens - the app is surfaced on the time, because silence says
+    /// nothing about whether somebody is there.
     case notRung
 }
 
@@ -356,7 +366,12 @@ private enum Rouse {
 /// This blocks on purpose. The caller has nothing else to do until there is
 /// somebody to show an app to, and waiting here is what makes the app appear
 /// when they are back rather than at a time they were not there for.
-private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) -> Rouse {
+///
+/// There is no way to turn the ringing off. A wake exists because the person
+/// is absent, and the ring is the only voice the program has; a silent fetch
+/// is no fetch, and the window it prepares the way for has no user to
+/// perform on.
+private func rouse(_ effects: Effects, requestedAt: Int) -> Rouse {
     // The kernel's own account comes first, and when it speaks it decides alone:
     // it says which of the two things actually happened. The power log is only
     // consulted when the kernel would not say.
@@ -385,41 +400,39 @@ private func rouse(_ config: Config, _ effects: Effects, requestedAt: Int) -> Ro
         }
     }
 
-    if config.ring {
-        // Only where there is an alarm to hear. Under `--no-ring` nothing plays
-        // at all, so a quiet speaker is not a failure this program has, and
-        // warning about it would be a warning about nothing.
-        checkAudible(effects)
+    // A speaker that is too quiet deserves the one warning an absent owner
+    // can still act on; a wake that rings into it anyway is not a program
+    // that gave up, it is a program that said its piece first.
+    checkAudible(effects)
 
-        // A wake is worth what its window is worth. This is the machine's own
-        // idle timer, measured with `pmset -g custom`: by the time the Mac is
-        // due to sleep again, a wake that has not reached anybody has failed,
-        // and ringing past that point is ringing at a closed door.
-        //
-        // Nil when the timers cannot be read, or when the Mac is set never to
-        // sleep. Neither is the same as never: the machine going down on its
-        // own ends the alarm too.
-        let window = effects.powerSettings()?.idleWindowSeconds
-        raiseToBeHeard(effects)
-        switch effects.alarm(window) {
-        case .rung(let rings):
-            effects.log(
-                "rang \(rings) times to be heard; somebody is back"
-            )
-            return .answered
-        case .failed(let rings):
-            effects.log(
-                "rang \(rings) times and nobody came back; this wake has passed"
-            )
-            return .nobodyCame
-        case .silent(let reason):
-            effects.warn("could not ring: \(reason)")
-            return .notRung
-        }
-    } else {
-        effects.log("--no-ring was given, staying quiet")
+    // A wake is worth what its window is worth. This is the machine's own
+    // idle timer, measured with `pmset -g custom`: by the time the Mac is
+    // due to sleep again, a wake that has not reached anybody has failed,
+    // and ringing past that point is ringing at a closed door.
+    //
+    // Nil when the timers cannot be read, or when the Mac is set never to
+    // sleep. Neither is the same as never: the machine going down on its
+    // own ends the alarm too.
+    let window = effects.powerSettings()?.idleWindowSeconds
+    raiseToBeHeard(effects)
+    // When the ring began is the one fact a night's log could not answer:
+    // it carried how the ringing ended and nothing about how it began.
+    effects.log("ringing until a hand reaches the keyboard")
+    switch effects.alarm(window) {
+    case .rung(let rings):
+        effects.log(
+            "rang \(rings) times to be heard; somebody is back"
+        )
+        return .answered
+    case .failed(let rings):
+        effects.log(
+            "rang \(rings) times and nobody came back; this wake has passed"
+        )
+        return .nobodyCame
+    case .silent(let reason):
+        effects.warn("could not ring: \(reason)")
+        return .notRung
     }
-    return .notRung
 }
 
 /// An alarm nobody can hear is the worst failure this program has, and nothing
@@ -466,7 +479,17 @@ private func surface(_ app: String, _ effects: Effects) -> ShowOutcome {
 /// wait early: the caller is abandoning what this wait was leading to, and
 /// sleeping further into it would run headlong past the moment that no
 /// longer exists.
-func sleepSeconds(_ effects: Effects, _ seconds: Int, checking: (() -> Bool)? = nil) {
+///
+/// `waking` is asked after every step too, and a true answer ends the wait
+/// just as early, for usually the opposite reason: the machine has completed
+/// a wake, the window this wait exists to open is open, and the rest of the
+/// budget is time best spent in the window rather than in the wait. This is
+/// what makes the ring begin at the wake - the whole point of the lead -
+/// instead of after the leftover budget has been walked out inside it.
+func sleepSeconds(
+    _ effects: Effects, _ seconds: Int,
+    checking: (() -> Bool)? = nil, waking: (() -> Bool)? = nil
+) {
     let target = (effects.now() + seconds) % secondsPerDay
     var budget = seconds
     while budget > 0 {
@@ -474,5 +497,6 @@ func sleepSeconds(_ effects: Effects, _ seconds: Int, checking: (() -> Bool)? = 
         effects.sleep(step)
         budget -= step
         if let checking, checking() { return }
+        if let waking, waking() { return }
     }
 }

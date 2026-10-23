@@ -2,8 +2,8 @@ import Testing
 @testable import ShowupCore
 
 @Suite struct CLITests {
-    func show(_ app: String, _ times: [TimeOfDay], ring: Bool = true) -> Command {
-        .show(Config(app: app, times: times, ring: ring, dryRun: false))
+    func show(_ app: String, _ times: [TimeOfDay]) -> Command {
+        .show(Config(app: app, times: times, dryRun: false))
     }
 
     @Test func parsesTheDocumentedExample() throws {
@@ -30,12 +30,17 @@ import Testing
     @Test func parsesTheDryRunFlag() throws {
         let nine = TimeOfDay(hour: 9, minute: 0)
         let command = try parseCLI(["-a", "Mail", "-t", "9", "-n"])
-        #expect(command == .showSchedule(Config(app: "Mail", times: [nine], ring: true, dryRun: true)))
+        #expect(command == .showSchedule(Config(app: "Mail", times: [nine], dryRun: true)))
     }
 
-    @Test func staysSilentWhenAskedTo() throws {
-        let nine = TimeOfDay(hour: 9, minute: 0)
-        #expect(try parseCLI(["-a", "Mail", "-t", "9", "--no-ring"]) == show("Mail", [nine], ring: false))
+    /// The ring has no switch: a wake exists because the person is absent,
+    /// and the ring is the only voice the program has. Asking for silence
+    /// with a flag is an unknown argument, like any other word the tool does
+    /// not own.
+    @Test func asksForSilenceAndIsRefusedInWords() {
+        #expect(throws: ShowError.unknownArgument("--no-ring")) {
+            try parseCLI(["-a", "Mail", "-t", "9", "--no-ring"])
+        }
     }
 
     @Test func collectsRepeatedTimeFlags() throws {

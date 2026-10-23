@@ -6,7 +6,7 @@ import Foundation
 /// because the display coming up, the person waking, and the password all have
 /// to happen inside the very minute the app was supposed to appear. So the
 /// work is done ahead of the time and the window still goes up on the time.
-public let dayLeadSeconds = 60
+public let dayLeadSeconds = 120
 public let nightLeadSeconds = 300
 
 /// Below this the alarm is playing into a speaker nobody can hear.

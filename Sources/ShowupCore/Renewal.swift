@@ -46,22 +46,30 @@ public func planRenewal(
     return (cancel: cancel, arm: arm)
 }
 
-/// The instants the contract's times of day fall on, read the way the night
-/// scheduler reads times: the next occurrence of each, settled on the
-/// calendar, where a moment arriving exactly now is tomorrow's by the same
-/// rule `nextWakeAbsolute` answers every schedule with. The two clock-change
-/// nights are the calendar's business here because they are the calendar's
-/// business everywhere else - an hour that exists twice keeps its earlier
-/// half, an hour that does not exist rolls to the next one, and nothing is
-/// invented to fill either.
+/// The instants the kernel is asked to settle the machine at, read the way
+/// the night scheduler reads times: the next occurrence of each contract
+/// time, settled on the calendar, then pulled forward by that hour's own
+/// lead - the wake exists to open the lead window, so the arm sits at the
+/// window's mouth, not at the minute the app belongs to. A moment arriving
+/// exactly now is tomorrow's by the same rule `nextWakeAbsolute` answers
+/// every schedule with; the lead comes off the settled instant, and on a
+/// clock-change night the calendar's own answer for the hour settles the
+/// mouth the same way it settles the moment.
+///
+/// The two clock-change nights are the calendar's business here because they
+/// are the calendar's business everywhere else - an hour that exists twice
+/// keeps its earlier half, an hour that does not exist rolls to the next
+/// one, and nothing is invented to fill either.
 public func requestedMoments(
     times: [TimeOfDay], now: Date, calendar: Calendar = .autoupdatingCurrent
 ) -> [Date] {
-    let moments = normalise(times).compactMap { at -> Date? in
+    let mouths = normalise(times).compactMap { at -> Date? in
         guard let today = calendar.date(bySettingHour: at.hour, minute: at.minute, second: 0, of: now) else {
             return nil
         }
         return today > now ? today : calendar.date(byAdding: .day, value: 1, to: today)
     }
-    return moments.sorted()
+    return mouths
+        .map { $0.addingTimeInterval(-Double(leadFor(hour: calendar.component(.hour, from: $0)))) }
+        .sorted()
 }
