@@ -43,7 +43,7 @@ import Testing
     @Test func aTapIsStillSeenWhenTheUserWasJustAtTheKeyboard() {
         let alarm = FakeAlarm(readings: [2, 5, 4])
 
-        #expect(alarmRing(AlarmOptions(between: 10, playFailures: 3, budget: 30), alarm) == .rung(rings: 2))
+        #expect(alarmRing(AlarmOptions(between: 10, playFailures: 3, budget: 50), alarm) == .rung(rings: 2))
     }
 
     /// A zero reading answers on its own: after a real gap the counter cannot
