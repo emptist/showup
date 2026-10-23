@@ -111,6 +111,9 @@ final class FakeMachine: @unchecked Sendable {
     /// that means the wake to land inside the long wait - the way the nightly
     /// arm's mouth does - says so here, and the wait is expected to end for it.
     var wakeStanding = false
+    /// Completed-wake records the step has judged foreign and retired. A
+    /// retired wake must not be able to end anything again.
+    private(set) var wakeDiscards = 0
     /// Whether the login has finished. A machine that was asleep and woke to a
     /// login window has not finished it until the password is typed.
     var loginIsFinished = true
@@ -160,6 +163,12 @@ final class FakeMachine: @unchecked Sendable {
             wakeKind: { [self] in self.recordWakeKind($0) },
             powerCycle: { [self] in self.powerCycle },
             wakeArrived: { [self] in self.wakeStanding },
+            discardWake: { [self] in
+                self.lock.withLock {
+                    self.wakeStanding = false
+                    self.wakeDiscards += 1
+                }
+            },
             loginFinished: { [self] in self.readLoginState() },
             log: { [self] in self.logLines.append($0) },
             warn: { [self] in self.warnings.append($0) }
@@ -269,8 +278,10 @@ final class FakeMachine: @unchecked Sendable {
     }
 }
 
-/// An alarm driven by scripted readings: `idle` values in order, the last one
-/// repeating, and the same for whether the sound plays.
+/// An alarm driven by scripted readings: the value handed to each check, in
+/// order, the last one repeating - the first check reads the second slot,
+/// because nothing is read before the first ring - and the same for whether
+/// the sound plays.
 final class FakeAlarm: AlarmEffects, @unchecked Sendable {
     private let lock = NSLock()
     private let idleReadings: [Int?]

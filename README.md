@@ -378,12 +378,20 @@ done inside that window:
 | 07:00 – 21:59 | 2 minutes | The machine has usually been up for hours, and whoever owns it is at it |
 | 22:00 – 06:59 | 5 minutes | The machine is likely asleep, and a person has to be woken and type a password |
 
-The ring belongs to this window, not to the required minute. Whatever opens it
-— the wake the renewal armed at the window's mouth, or a lid opened early —
-ends the wait, and the alarm starts ringing there: the whole point of the lead
-is that the ring happens *before* the required time, so a person in bed is
-fetched in time to answer it. When the ringing began is in the log for every
-wake ("ringing until a hand reaches the keyboard"), followed by how it ended.
+The ring belongs to this window, and to the wake that window asked for. The
+kernel may fire its alarm a second or two off the mouth, and the program picks
+up a step of sleep behind it, so a completed wake that lands within a minute of
+the mouth is the window's own and the alarm starts ringing there — the whole
+point of the lead is that the ring happens *before* the required time, so a
+person in bed is fetched in time to answer it. A wake further ahead of the
+mouth is the machine coming up for its own reasons — a lid someone lifted, a
+maintenance wake — and it is not rung for: the person it would ring at may
+already be at the keyboard, which is exactly what one measured 12:40 run did,
+sending the ring out 18 minutes ahead of a 13:00 window at someone who was
+typing. Such a wake is slept through and the record of it is retired; the
+window keeps holding for the wake that was asked for. When the ringing began
+is in the log for every wake ("ringing until a hand reaches the keyboard"),
+followed by how it ended.
 
 On a machine that never went down, whatever is left of the window after the
 alarm is slept out, so the window still goes up on the time — a measured run put
@@ -471,15 +479,17 @@ The counter is keys only — `CGEventSource.secondsSinceLastEventType` narrowed 
 `.keyDown` — because a hand on the keyboard is what answers the alarm, and a
 trackpad twitch while nobody is there is not.
 
-The first reading is captured *before* the first ring rather than after, so
-that the wake itself, or a `sudo` password typed earlier, cannot be mistaken
-for the user answering. (Today's root run; the planned user run has no such
-password — see *Where the design is going*.) After that each reading is measured against the one
-before it, not against that first one. The counter is back at zero the instant
-a key lands and climbs again from there, so a tap sampled a few seconds late
-reads as a small number rather than as a fall — and measured against the
-original baseline it would have been missed entirely whenever the user had been
-recently at the keyboard, which is the case that matters most.
+Whether a key has arrived is read against the wall clock since the alarm
+started, not against the previous reading. The counter restarts with the wake,
+so it sits level with that clock while nobody is there, and a key that lands
+after the alarm's first seconds takes it permanently short of that line,
+however the readings after it are sampled. Measuring each reading against the
+one before it was tried, and failed at a real 12:40: a password being typed in
+one continuous stream produced samples that climbed as often as they fell —
+four rings went out at somebody who was typing the whole time. Keys inside the
+alarm's first five seconds are the wake's own bookkeeping, not a hand, and a
+`sudo` password typed before the machine came up reads long, not short, so
+neither is treated as the answer.
 
 Whether a key has been pressed at all is read from `CGEventSource`. A locked
 screen counts as idle, because it produces no key presses either — and the

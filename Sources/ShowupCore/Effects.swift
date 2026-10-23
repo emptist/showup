@@ -39,6 +39,11 @@ public struct Effects: Sendable {
     /// exists to receive, and sleeping on through an open window rings at the
     /// required time instead of inside it.
     public var wakeArrived: @Sendable () -> Bool
+    /// Retires the record of a completed wake, so that a wake the step has
+    /// judged not to be its window's own cannot end a later hold out of
+    /// memory. The peek above leaves the record standing on purpose; this is
+    /// the call that spends it.
+    public var discardWake: @Sendable () -> Void
     /// Whether the login has finished: nobody is sitting in front of a login
     /// window, waiting to type a password.
     public var loginFinished: @Sendable () -> Bool
@@ -59,6 +64,7 @@ public struct Effects: Sendable {
         wakeKind: @escaping @Sendable (Int?) -> WakeKind,
         powerCycle: @escaping @Sendable () -> PowerCycle?,
         wakeArrived: @escaping @Sendable () -> Bool,
+        discardWake: @escaping @Sendable () -> Void,
         loginFinished: @escaping @Sendable () -> Bool,
         log: @escaping @Sendable (String) -> Void,
         warn: @escaping @Sendable (String) -> Void
@@ -76,6 +82,7 @@ public struct Effects: Sendable {
         self.wakeKind = wakeKind
         self.powerCycle = powerCycle
         self.wakeArrived = wakeArrived
+        self.discardWake = discardWake
         self.loginFinished = loginFinished
         self.log = log
         self.warn = warn

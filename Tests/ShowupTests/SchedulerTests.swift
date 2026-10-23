@@ -346,11 +346,12 @@ import Testing
         #expect(machine.now == 9 * 3_600)
     }
 
-    /// A wake that lands before its mouth is the same window opening. The
-    /// wait ends for it after one step rather than walking the night out, so
-    /// the evidence is taken while the machine is genuinely, recently asleep
-    /// and the alarm spends its window on a person who might still arrive.
-    @Test func theWaitEndsWhenTheMachineWakesBeforeItsMouth() {
+    /// A wake the schedule did not ask for is not the window opening. The
+    /// step asks whose wake it was: one asleep for its own reasons 7 hours
+    /// short of the mouth is not rung for, the record of it is retired, and
+    /// the hold stays on for the wake that was asked for. A real afternoon
+    /// rang 18 minutes ahead of its window this way.
+    @Test func theHoldSleepsThroughAWakeThatIsNotItsWindow() {
         let machine = FakeMachine()
         machine.setClock(0)
         machine.setIdleCounter(300)
@@ -361,8 +362,55 @@ import Testing
 
         _ = step(config(hour: 9), effects: machine.effects, from: 0)
 
-        #expect(machine.sleptFor.first == 10)  // one step, and the wake ended it
+        // The wake landed 8h 12m 50s short of the mouth it was asked for.
+        #expect(machine.said("a wake 8h 12m 50s short of the one this window asked for"))
+        #expect(machine.wakeDiscards == 1)
+        // The ring that came was the mouth's own, on time.
         #expect(machine.said("ringing until a hand reaches the keyboard"))
+        #expect(machine.now == 9 * 3_600)
+    }
+
+    /// A wake within the mouth's own slack is the window's own wake: the
+    /// kernel may land its alarm a second or two off and the process picks
+    /// up a step behind it, so nothing is retired and the ring goes out.
+    @Test func aWakeAMinuteShortOfTheMouthIsTheWindowsOwn() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = true
+        machine.wakeStanding = true
+        machine.suspendsDuring(1, for: 32_260)  // down ~9 hours, landing 10s short of 08:58
+        machine.alarmTakesSeconds = 30
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        #expect(!machine.said("short of the one this window asked for"))
+        #expect(machine.wakeDiscards == 0)
+        let rang = machine.logLines.firstIndex { $0.contains("ringing until a hand reaches the keyboard") }
+        let held = machine.logLines.firstIndex { $0.contains("holding the window") }
+        #expect(rang != nil && held != nil && rang! < held!)
+        #expect(machine.now == 9 * 3_600)
+    }
+
+    /// Measured on a real afternoon: the Mac came up 18 minutes ahead of its
+    /// window for its own reasons, and the person was already at the keyboard
+    /// typing. The hold slept through the wake, no ring went out at them, and
+    /// the app came up for the moment it exists for all the same.
+    @Test func aWakeThatIsNotThisWindowsOwnIsNotRungAt() {
+        let machine = FakeMachine()
+        machine.setClock(0)
+        machine.setIdleCounter(300)
+        machine.sleepsDuringWait = false       // the person is up and staying
+        machine.wakeStanding = true
+        machine.suspendsDuring(1, for: 2_700)
+        machine.alarmTakesSeconds = 30
+
+        _ = step(config(hour: 9), effects: machine.effects, from: 0)
+
+        #expect(machine.said("a wake 8h 12m 50s short of the one this window asked for"))
+        #expect(!machine.said("ringing until a hand reaches the keyboard"))
+        #expect(machine.wakeDiscards == 1)
+        #expect(machine.shownApps == ["Safari"])
         #expect(machine.now == 9 * 3_600)
     }
 

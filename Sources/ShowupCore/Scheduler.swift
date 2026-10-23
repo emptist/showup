@@ -180,20 +180,30 @@ public func step(
     }
 
     let idleBefore = effects.idleSeconds()
-    // The wait ends at the wake, not at the budget: the mouth the kernel was
-    // asked for may arrive, and so may any wake before it - a lid opened, a
-    // person home early. Both are the window opening, and the work belongs
-    // to the window. Measured on a real night: the ring began a minute into
-    // the window instead of at its mouth, and the first ring was never
-    // receipted at all.
-    sleepSeconds(
-        effects, ahead,
-        checking: scheduleChanged,
-        waking: { effects.wakeArrived() }
-    )
-    if let scheduleChanged, scheduleChanged() {
-        effects.log("the schedule changed while holding the wake; this moment is not served")
-        return .withdrawn
+    // The wait ends at a completed wake, and the step then asks whose wake it
+    // was. The one this window asked the kernel for opens the window at its
+    // mouth; a wake before it - a lid someone lifted, maintenance - is not the
+    // window opening, and it is slept through, holding to the wake that was
+    // asked for. Measured on a real afternoon: a Mac came up 18 minutes early
+    // for its 13:00 window and the ring went out at a person who was already
+    // at the keyboard, typing.
+    var remaining = ahead
+    while true {
+        sleepSeconds(effects, remaining, checking: scheduleChanged, waking: { effects.wakeArrived() })
+        if let scheduleChanged, scheduleChanged() {
+            effects.log("the schedule changed while holding the wake; this moment is not served")
+            return .withdrawn
+        }
+        guard effects.wakeArrived() else { break }   // the clock ran out: the mouth arrived
+        let shortOf = secondsBetween(effects.now(), requestedAt)
+        guard shortOf > mouthSlackSeconds, shortOf < secondsPerDay / 2 else { break }
+        effects.log(
+            "a wake \(describeDelay(shortOf)) short of the one this window asked for; it is not rung for, and the hold stays for its own wake"
+        )
+        // The record is retired so this later hold is not ended by the same
+        // wake a second time; the window's own wake will produce its own.
+        effects.discardWake()
+        remaining = shortOf
     }
     let elapsed = secondsBetween(started, effects.now())
     let idleAfter = effects.idleSeconds()
@@ -335,6 +345,17 @@ private func holdUntilTheTime(
         }
     }
 }
+
+/// How close to the mouth the kernel was asked for a completed wake has to
+/// land to count as this window's own.
+///
+/// A mouth's own wake lands a second or two off the instant the RTC alarm was
+/// set for, the process picks up a step of sleep behind it, and a DarkWake
+/// swinging into FullWake adds seconds of its own. Anything within this slack
+/// is the wake; anything further ahead is the machine waking for its own
+/// reasons, which reaches a person who may already be there, and the ring at
+/// them is the failure this slack exists to avoid.
+private let mouthSlackSeconds = 60
 
 /// How long this Mac is configured to stay awake with nobody touching it.
 ///
@@ -481,11 +502,11 @@ private func surface(_ app: String, _ effects: Effects) -> ShowOutcome {
 /// longer exists.
 ///
 /// `waking` is asked after every step too, and a true answer ends the wait
-/// just as early, for usually the opposite reason: the machine has completed
-/// a wake, the window this wait exists to open is open, and the rest of the
-/// budget is time best spent in the window rather than in the wait. This is
-/// what makes the ring begin at the wake - the whole point of the lead -
-/// instead of after the leftover budget has been walked out inside it.
+/// just as early: the machine has completed a wake. Which wake it was is the
+/// caller's judgment - the one its window asked for opens the window, one the
+/// schedule did not ask for is slept through - but this hook is what makes the
+/// judgment possible in time for it to matter: the wake is the thing the wait
+/// exists to receive, and the ring is due at its mouth.
 func sleepSeconds(
     _ effects: Effects, _ seconds: Int,
     checking: (() -> Bool)? = nil, waking: (() -> Bool)? = nil

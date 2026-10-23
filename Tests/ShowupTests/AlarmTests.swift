@@ -3,17 +3,18 @@ import Testing
 
 @Suite struct AlarmTests {
     /// Nothing but a key press stops the alarm, so every test scripts the
-    /// keyboard readings that stop it.
+    /// keyboard readings that stop it. The first slot in a script is not read -
+    /// nothing is read before the first ring - and each check takes the slot
+    /// after its ring.
     let options = AlarmOptions(between: 10, playFailures: 3)
 
     @Test func aKeyPressAfterTheFirstRingStopsIt() {
-        // readings[0] is the baseline, taken before the first ring.
         let alarm = FakeAlarm(readings: [900, 900, 0])
         #expect(alarmRing(options, alarm) == .rung(rings: 2))
         #expect(alarm.plays == 2)
     }
 
-    /// A key press in the window before the first ring stops the alarm before it
+    /// A key press in front of the first check stops the alarm before it
     /// rings again at all.
     @Test func aKeyPressBeforeTheFirstCheckStopsIt() {
         let alarm = FakeAlarm(readings: [900, 0])
@@ -21,32 +22,57 @@ import Testing
         #expect(alarm.plays == 1)
     }
 
-    /// The baseline is read before the first ring, so a sudo password typed a
-    /// moment ago cannot be mistaken for the answer.
-    @Test func aCounterBelowTheBaselineCountsAsAKeyPress() {
-        let alarm = FakeAlarm(readings: [900, 900, 400])
-        #expect(alarmRing(options, alarm) == .rung(rings: 2))
+    /// Measured on a real afternoon: four rings went out at somebody who
+    /// was continuously typing their password at the login window. Their
+    /// readings against the reading before them climbed as often as they
+    /// fell, so a fall test did not see a hand at all. Against the wall
+    /// clock since the alarm started, the same readings sit permanently
+    /// short of it, and the very first check answers.
+    @Test func typingStopsTheRingEvenWhenNoReadingFalls() {
+        // 2, 3: no fall in either comparison, and a key pressed within
+        // ten seconds of the alarm's start all the same.
+        let alarm = FakeAlarm(readings: [0, 2, 3])
+
+        #expect(alarmRing(options, alarm) == .rung(rings: 1))
+        #expect(alarm.plays == 1)
     }
 
-    /// A tap leaves the counter back at zero and climbing again, so by the time
-    /// it is sampled it is a small number rather than a fall below the original
-    /// baseline. Measured against the reading before, a tap is always visible.
-    /// Against the original baseline this case rang past the user: 4 is above 2.
+    /// A tap leaves the counter back at a small number, so a reading taken a
+    /// moment after it answers the alarm even though the previous sample of
+    /// the same hand read higher.
     @Test func aTapIsStillSeenWhenTheUserWasJustAtTheKeyboard() {
-        // readings[0] is the baseline: the user touched the keyboard just before
-        // the alarm started. Then 5, then 4 - the counter fell, which only a key
-        // press does.
         let alarm = FakeAlarm(readings: [2, 5, 4])
 
         #expect(alarmRing(AlarmOptions(between: 10, playFailures: 3, budget: 30), alarm) == .rung(rings: 2))
     }
 
-    /// A zero baseline happens whenever the user touched the keyboard just
-    /// before the alarm started, which is common on a wake. The counter can
-    /// only still be zero after a real wait if a key arrived during it.
-    @Test func aZeroBaselineStillStopsForAZeroReading() {
+    /// A zero reading answers on its own: after a real gap the counter cannot
+    /// still be zero unless a key put it there.
+    @Test func aZeroReadingStopsTheRing() {
         let alarm = FakeAlarm(readings: [0, 5, 0])
         #expect(alarmRing(options, alarm) == .rung(rings: 2))
+    }
+
+    /// A key that landed minutes ago is not somebody being back. The counter
+    /// reads long again as soon as it catches up with the clock, and the fall
+    /// test used to stop for it; against the clock it reads past both, as a
+    /// key that old should.
+    @Test func aKeyMinutesOldDoesNotStopTheRing() {
+        let alarm = FakeAlarm(readings: [900, 900, 400])
+        let budget = AlarmOptions(between: 10, playFailures: 3, budget: 30)
+
+        #expect(alarmRing(budget, alarm) == .failed(rings: 3))
+    }
+
+    /// The counter sitting level with the clock is a machine nobody is at,
+    /// even when the numbers themselves are small ones - the ring keeps going
+    /// and the budget concludes the wake has failed.
+    @Test func theCounterKeepingUpWithTheClockMeansNobodyIsThere() {
+        let alarm = FakeAlarm(readings: [2, 12, 22, 32, 42])
+        let budget = AlarmOptions(between: 10, playFailures: 3, budget: 40)
+
+        #expect(alarmRing(budget, alarm) == .failed(rings: 4))
+        #expect(alarm.sleeps == 4)
     }
 
     /// A counter that cannot be read at all is not evidence that anybody is
@@ -76,7 +102,6 @@ import Testing
     /// keyboard. Ignoring them until the sound works is the bug this covers.
     @Test func aKeyPressDuringPlayFailuresStopsTheAlarm() {
         let busy = Result<Void, ShowError>.failure(.unavailable(what: "sound", reason: "busy"))
-        // baseline (readings[0]) is high; after the first failed play, the counter drops to 0.
         let alarm = FakeAlarm(readings: [900, 0], playResults: [busy])
 
         #expect(alarmRing(AlarmOptions(between: 10, playFailures: 40), alarm) == .rung(rings: 0))
@@ -126,5 +151,6 @@ import Testing
         #expect(AlarmOptions().budget == nil)
         #expect(defaultPlayFailures == 40)
         #expect(ringbackTone.hasSuffix("multiway_invitation.caf"))
+        #expect(keyAnswerToleranceSeconds == 5)
     }
 }
