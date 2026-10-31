@@ -163,7 +163,7 @@ both.
 ```text
 showup -a <app> -t <times> [-n]
 showup                                 # serve the schedule the contract carries
-  showup clean                  # cancel all scheduled wakes, prune old logs
+  showup clean                  # kill any running showup and take back its wakes
 showup renew <contract-directory>
 
   -a, --app <name>      The application to surface, for example "Safari".

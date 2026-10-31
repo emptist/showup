@@ -9,12 +9,11 @@ import Foundation
 public let dayLeadSeconds = 120
 public let nightLeadSeconds = 300
 
-/// Below this the alarm is playing into a speaker nobody can hear.
-public let quietVolume = 30
-
-/// What the speaker is raised to before the alarm rings, when it is quieter
-/// than this.
-public let ringVolume = 20
+/// Below this the alarm is playing into a speaker nobody can hear, and the
+/// speaker is raised up to this level before the alarm plays. One threshold —
+/// anything below it is warned and raised up to it, anything at or above it is
+/// left alone.
+public let ringVolume = 30
 
 /// How long before a wake the kernel is asked to bring the Mac back, for the
 /// hour the required time falls in.

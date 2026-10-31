@@ -1,5 +1,7 @@
+import Darwin
 import Foundation
 import ShowupCore
+import Synchronization
 
 /// One file per run, so a single run can be read on its own and no file grows
 /// without bound. The number is the wall clock at start, which also sorts the
@@ -47,17 +49,40 @@ public enum Log {
     /// The log file this run writes to, on the ground it runs on.
     public static let path = logPath()
 
-    private static let descriptor: Int32 = {
-        // Readable, not writable: the log is for the person who looks later, and
-        // it is not a file an unprivileged user may alter - it is the runner's to
-        // write and the directory is the runner's to name files in.
-        let file = open(path, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o644)
-        return file < 0 ? -1 : file
-    }()
+    /// The file descriptor, opened lazily on first use.
+    ///
+    /// `-1` means "not yet opened (or open failed)". `>= 0` is a live fd kept
+    /// for the lifetime of the process. Written exactly once on the winning
+    /// CAS of `ensureOpen()`; all subsequent reads are a single atomic load.
+    private static let descriptor = Atomic<Int32>(-1)
+
+    /// Opens the log directory and file if needed, returning a live fd.
+    ///
+    /// Uses CAS so that even if multiple threads race the first `write`, exactly
+    /// one thread stores its result and the others discard theirs. Creates the
+    /// directory itself before opening, so `Log` is self-sufficient — callers
+    /// do not need to remember to call `Ground.ensureDirectories()` first.
+    private static func ensureOpen() -> Int32 {
+        let current = descriptor.load(ordering: .acquiring)
+        guard current < 0 else { return current }
+
+        let dir = (path as NSString).deletingLastPathComponent
+        if !FileManager.default.fileExists(atPath: dir) {
+            try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        }
+        let fd = open(path, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o644)
+        let result: Int32 = fd < 0 ? -1 : fd
+
+        // CAS: if descriptor is still -1, publish our fd. If someone else
+        // already opened, use theirs. Only the exchange value matters; the
+        // original -1 we tried to swap is the same for all racing threads.
+        let (_, winner) = descriptor.compareExchange(expected: -1, desired: result, ordering: .acquiringAndReleasing)
+        return winner
+    }
 
     /// Whether this run can write its log at all. On root's ground that without
     /// sudo is not so; on a user run's own ground the question is the run's own.
-    public static var isWritable: Bool { descriptor >= 0 }
+    public static var isWritable: Bool { ensureOpen() >= 0 }
 
     /// Deletes logs of runs that ended more than a week ago, and says so.
     ///
@@ -99,7 +124,8 @@ public enum Log {
     public static func write(_ message: String, to stream: FileHandle = .standardOutput) {
         let line = "\(clock(secondsSinceMidnight(Date())))  \(message)\n"
         stream.write(Data("showup: \(line)".utf8))
-        guard descriptor >= 0 else { return }
-        _ = line.withCString { Darwin.write(descriptor, $0, strlen($0)) }
+        let fd = ensureOpen()
+        guard fd >= 0 else { return }
+        _ = line.withCString { Darwin.write(fd, $0, strlen($0)) }
     }
 }

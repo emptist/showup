@@ -54,7 +54,7 @@ public enum Command: Equatable {
     /// is not the side that would know whose home to guess.
     case renew(directory: String)
     case help
-    /// Clean up old scheduled wakes and logs, leaving no wake armed.
+    /// Kill any running showup instance and take back its scheduled wakes.
     case clean
 }
 

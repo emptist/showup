@@ -127,16 +127,18 @@ enum Showup {
         try ScheduleContract.read(String(contentsOfFile: path, encoding: .utf8))
     }
 
-    /// Cleans up: cancels every scheduled wake showup owns, prunes old logs,
-    /// then exits. Only this run's own wakes are cancelled — same rule as
-    /// leaveNothingArmed — and nothing enters the night loop.
+    /// Cleans up running showup instances: kills whatever holds the instance
+    /// lock and takes back any kernel wakes showup armed, then exits.
+    ///
+    /// Nothing enters the night loop, and the logs are left alone — the auto-prune
+    /// at startup handles old logs the next time showup boots. Only showup's own
+    /// wakes are cancelled — same rule as leaveNothingArmed.
     static func runClean() {
         Ground.ensureDirectories()
         InstanceLock.killHolding(at: InstanceLock.path)
         ScheduledWake.shared.takeBackLeftovers()
-        Log.pruneOldRuns()
-        Log.write("cleaned; nothing armed, nothing old left")
-        FileHandle.standardOutput.write(Data("showup: cleaned; nothing armed, nothing old left\n".utf8))
+        Log.write("stopped running showup and took back showup's kernel wakes; logs left alone")
+        FileHandle.standardOutput.write(Data("showup: stopped running showup and took back showup's kernel wakes\n".utf8))
         exit(0)
     }
 
@@ -366,7 +368,7 @@ enum Showup {
         "  showup -a Mail -t 24:00 --dry-run",
         "  showup                        # no schedule said: the one the",
         "                                # contract carries, set up at install",
-        "  showup clean                  # cancel all scheduled wakes, prune old logs",
+        "  showup clean                  # kill any running showup and take back its wakes",
         "  showup renew ~/Library/Application\\ Support/showup   # as root",
         "",
         ].joined(separator: "\n")

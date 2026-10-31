@@ -460,7 +460,7 @@ private func rouse(_ effects: Effects, requestedAt: Int) -> Rouse {
 /// else here would reveal it. A real 04:00 wake rang 55 times over five minutes
 /// and was not heard at all, because the volume was 13.
 private func checkAudible(_ effects: Effects) {
-    guard case .success(let volume) = effects.outputVolume(), volume < quietVolume else { return }
+    guard case .success(let volume) = effects.outputVolume(), volume < ringVolume else { return }
     effects.warn("the alarm plays at the speaker volume, which is \(volume) - you will not hear it")
 }
 
