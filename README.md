@@ -117,7 +117,7 @@ follows the changes without a restart: a time removed mid-hold is withdrawn
 kernel's one-shot wakes matched to the contract, so a change is picked up at
 the next sweep even with no user act along the way.
 
-Two honest costs, stated with the promise rather than after it:
+Honest costs, stated with the promise rather than after it:
 
 - A schedule change can leave at most one stale kernel wake armed, until
   00:05's sweep takes it back. Its cost is one unexplained wake-up: the
@@ -163,6 +163,7 @@ both.
 ```text
 showup -a <app> -t <times> [-n]
 showup                                 # serve the schedule the contract carries
+  showup clean                  # cancel all scheduled wakes, prune old logs
 showup renew <contract-directory>
 
   -a, --app <name>      The application to surface, for example "Safari".
@@ -823,25 +824,20 @@ that only answers in one of the two is not usable here.
 
 ### The log
 
-Today's ground is root's `/var/log`, and this section describes it. Under the
-decided redesign (see *Where the design is going*), a user-mode run's ground
-becomes `~/Library/Logs/showup` with the same one-per-run naming, the same
-`0644`, and the same week rule; the root ground below stays for runs launched
-with sudo. Until that lands, it is exactly this:
+Showup runs as a normal user, today. Every run you start with `showup -a …`
+writes its log under `~/Library/Logs/showup/`, alongside every other run you
+ever made — no `sudo`, no `/var/log`, no privilege needed to read your own logs.
+This is the settled state. Whatever root did in the transit phase before is gone
+from the run path.
 
-`/var/log/showup<timestamp>.log`, and nowhere else. One file per run, named for
-when it started:
+One file per run, named for when it started:
 
 ```
-showup: logging to /var/log/showup1758290000.log
+showup: logging to ~/Library/Logs/showup/showup<epoch>.log
 ```
+
 so a single run can be read on its own, nothing grows without bound, and the
 directory sorts into the order the runs happened in.
-
-The file is root owned and world readable (`0644`): the log is for whoever has
-to read it later, often without root's help, and it is not writable by anybody
-but its owner. Each one is kept for a week; the next run deletes anything older,
-which it says so in its own log.
 
 Each line carries the time of day it was written, and each wake records the
 numbers it was decided from — which idle counter reading, how long the wait was —
@@ -863,10 +859,9 @@ defects that the code had already fixed kept being rediscovered in runs made by
 code that carried the fix; the stamp is what stops that.
 
 Only one instance runs at a time, and that is decided by the kernel rather than
-by attention: `flock` on `/var/log/showup.lock`, held for the life of the
-process, released on exit and on death, so a crash leaves no lock behind. A
-second run stops and names the first one's pid. Without sudo the lock cannot be
-made, which is warned about the same way scheduling cannot be done.
+by attention: `flock` on `~/Library/Application Support/showup/showup.lock`, held
+for the life of the process, released on exit and on death, so a crash leaves no
+lock behind. A second run stops and names the first one's pid.
 
 A run killed outright — `kill -9`, or a crash — cannot run its stop handler, so
 its RTC wake would stay armed until it fired for nobody. So each run, at
@@ -874,13 +869,6 @@ startup and under the lock, takes back every wake still armed under its own
 identifier `com.showup.wake` before listing what the kernel holds: a leftover
 can only be its own previous life, and the list that follows is the truth after
 the clean-up.
-The directory is `/var/log` and not `/tmp`, and that is not a style choice.
-`showup` runs as root and `/tmp` is world writable, so a file there is a way for
-an unprivileged user to decide where a root process writes. `/var/log` is root
-owned and the file is opened `O_NOFOLLOW`, so there is nothing there to aim at.
-
-Run without sudo and the file cannot be created; `showup` says so at startup and
-carries on writing to the terminal.
 
 There is no setting to move it. A log that is somewhere different on the night
 somebody needs to read it is not much of a log.

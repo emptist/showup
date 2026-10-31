@@ -54,6 +54,8 @@ public enum Command: Equatable {
     /// is not the side that would know whose home to guess.
     case renew(directory: String)
     case help
+    /// Clean up old scheduled wakes and logs, leaving no wake armed.
+    case clean
 }
 
 public struct Config: Equatable {

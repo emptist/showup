@@ -78,4 +78,19 @@ public enum InstanceLock {
         guard let raw = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
         return raw.split(separator: " ").last.flatMap { Int($0) }
     }
+
+    /// Terminates the process that holds the instance lock at `path`, so a
+    /// manual clean does not have to wait on a second run for it to exit. A
+    /// SIGTERM first; if the fd stays open one second later the pid is SIGKILL'd.
+    public static func killHolding(at path: String) {
+        if let pid = pid(at: path), pid > 0 {
+            let pid32 = Int32(pid)
+            FileHandle.standardError.write(Data("showup: stopping pid \(pid)\n\n".utf8))
+            kill(pid32, SIGTERM)
+            sleep(1)
+            kill(pid32, SIGKILL)
+        } else {
+            FileHandle.standardError.write(Data("showup: nothing is running; nothing to stop\n\n".utf8))
+        }
+    }
 }

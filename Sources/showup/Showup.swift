@@ -35,6 +35,8 @@ enum Showup {
             runFromTheSchedule()
         case .renew(let directory):
             renewFrom(directory)
+        case .clean:
+            runClean()
         }
     }
 
@@ -123,6 +125,19 @@ enum Showup {
     /// misshapen one as the reader's error that names the field.
     static func readContract(at path: String) throws -> ScheduleContract {
         try ScheduleContract.read(String(contentsOfFile: path, encoding: .utf8))
+    }
+
+    /// Cleans up: cancels every scheduled wake showup owns, prunes old logs,
+    /// then exits. Only this run's own wakes are cancelled — same rule as
+    /// leaveNothingArmed — and nothing enters the night loop.
+    static func runClean() {
+        Ground.ensureDirectories()
+        InstanceLock.killHolding(at: InstanceLock.path)
+        ScheduledWake.shared.takeBackLeftovers()
+        Log.pruneOldRuns()
+        Log.write("cleaned; nothing armed, nothing old left")
+        FileHandle.standardOutput.write(Data("showup: cleaned; nothing armed, nothing old left\n".utf8))
+        exit(0)
     }
 
     /// The run's own boot, once: the contract gets the word, then ground,
@@ -351,6 +366,7 @@ enum Showup {
         "  showup -a Mail -t 24:00 --dry-run",
         "  showup                        # no schedule said: the one the",
         "                                # contract carries, set up at install",
+        "  showup clean                  # cancel all scheduled wakes, prune old logs",
         "  showup renew ~/Library/Application\\ Support/showup   # as root",
         "",
         ].joined(separator: "\n")

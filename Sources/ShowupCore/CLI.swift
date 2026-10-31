@@ -6,6 +6,12 @@ public func parseCLI(_ arguments: [String]) throws(ShowError) -> Command {
         return .renew(directory: arguments[1])
     }
 
+    // Explicit clean command: `showup clean`
+    if arguments.first == "clean" {
+        guard arguments.count == 1 else { throw ShowError.missingValue("clean") }
+        return .clean
+    }
+
     // Nothing said at all is the installed night run: the schedule it serves
     // is whoever's contract is on the user ground, not an argument. Every
     // other shape still has to say its app, the way it always has.
